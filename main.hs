@@ -1,8 +1,12 @@
+{-# LANGUAGE MultilineStrings #-}
+
 import Data.Char (isAlphaNum)
-import qualified Data.Map as M
-import Debug.Trace
-import Text.ParserCombinators.ReadP
 import Data.Function (fix)
+import Data.IORef
+import Debug.Trace
+import System.IO.Unsafe
+import Text.ParserCombinators.ReadP
+import qualified Data.Map as M
 
 type Lab   = String
 type Name  = String
@@ -48,7 +52,8 @@ instance Show Term where
 -- ===========
 
 data Env = Env
-  { var_new :: Int
+  { inters  :: Int
+  , var_new :: Int
   , dup_new :: Int
   , var_map :: Map Term
   , dp0_map :: Map Term
@@ -60,7 +65,7 @@ names :: String -> [String]
 names abc = fix $ \x -> [""] ++ concatMap (\s -> Prelude.map (:s) abc) x
 
 env :: Env
-env = Env 0 0 M.empty M.empty M.empty M.empty
+env = Env 0 0 0 M.empty M.empty M.empty M.empty
 
 fresh :: (Env -> Int) -> (Env -> Int -> Env) -> String -> Env -> (Env, String)
 fresh get set chars s = (set s (get s + 1), "$" ++ (names chars) !! (get s + 1))
@@ -83,6 +88,9 @@ take_var = taker var_map (\s m -> s { var_map = m })
 take_dp0 = taker dp0_map (\s m -> s { dp0_map = m })
 take_dp1 = taker dp1_map (\s m -> s { dp1_map = m })
 take_dup = taker dup_map (\s m -> s { dup_map = m })
+
+inc_inters :: Env -> Env
+inc_inters s = s { inters = inters s + 1 }
 
 -- Parsing
 -- =======
@@ -171,12 +179,13 @@ read_term s = case readP_to_S (parse_term <* skipSpaces <* eof) s of
 -- ==========
 
 wnf :: Env -> Term -> (Env,Term)
-wnf s (App f x)     = let (s0,f0) = wnf s f in app s0 f0 x
-wnf s (Dup k l v t) = wnf (delay_dup s k (l,v)) t
-wnf s (Var x)       = var s x
-wnf s (Dp0 x)       = dp0 s x
-wnf s (Dp1 x)       = dp1 s x
-wnf s f             = (s,f)
+wnf s t = go s t where
+  go s (App f x)     = let (s0,f0) = wnf s f in app s0 f0 x
+  go s (Dup k l v t) = wnf (delay_dup s k (l,v)) t
+  go s (Var x)       = var s x
+  go s (Dp0 x)       = dp0 s x
+  go s (Dp1 x)       = dp1 s x
+  go s f             = (s,f)
 
 app :: Env -> Term -> Term -> (Env,Term)
 app s (Nam fk)       x = app_nam s fk x
@@ -200,30 +209,32 @@ dup s k l v              t = (s , Dup k l v t)
 -- x ← v
 -- f
 app_lam s fx ff v = 
-  let s0 = subst_var s fx v in
-  wnf s0 ff
+  let s0 = inc_inters s in
+  let s1 = subst_var s0 fx v in
+  wnf s1 ff
 
 -- (&fL{fa,fb} v)
 -- -------------------- app-sup
 -- ! x &fL = v
 -- &fL{(fa x₀),(fa x₁)}
 app_sup s fL fa fb v =
-  let (s0,x) = fresh_dup s in
+  let s0     = inc_inters s in
+  let (s1,x) = fresh_dup s0 in
   let app0   = App fa (Dp0 x) in
   let app1   = App fb (Dp1 x) in
   let sup    = Sup fL app0 app1 in
   let dup    = Dup x fL v sup in
-  wnf s0 dup
+  wnf s1 dup
 
 -- (fk v)
 -- ------ app-nam
 -- (fk v)
-app_nam s fk v = (s, Dry (Nam fk) v)
+app_nam s fk v = (inc_inters s, Dry (Nam fk) v)
 
 -- ((df dx) v)
 -- ----------- app-dry
 -- ((df dx) v)
-app_dry s df dx v = (s, Dry (Dry df dx) v)
+app_dry s df dx v = (inc_inters s, Dry (Dry df dx) v)
 
 -- ! k &L = λvk.vf; t
 -- ------------------ dup-lam
@@ -233,7 +244,8 @@ app_dry s df dx v = (s, Dry (Dry df dx) v)
 -- ! g &L = vf
 -- t
 dup_lam s k l vk vf t =
-  let (s1, x0) = fresh_var s in
+  let s0       = inc_inters s in
+  let (s1, x0) = fresh_var s0 in
   let (s2, x1) = fresh_var s1 in
   let (s3, g)  = fresh_dup s2 in
   let s4       = subst_dp0 s3 k  (Lam x0 (Dp0 g)) in
@@ -256,11 +268,13 @@ dup_lam s k l vk vf t =
 --   t
 dup_sup s k l vl va vb t
   | l == vl =
-    let s0 = subst_dp0 s k va in
-    let s1 = subst_dp1 s0 k vb in
-    wnf s1 t
+    let s0 = inc_inters s in
+    let s1 = subst_dp0 s0 k va in
+    let s2 = subst_dp1 s1 k vb in
+    wnf s2 t
   | l /= vl =
-    let (s1, a) = fresh_dup s in
+    let s0      = inc_inters s in
+    let (s1, a) = fresh_dup s0 in
     let (s2, b) = fresh_dup s1 in
     let s3      = subst_dp0 s2 k (Sup vl (Dp0 a) (Dp0 b)) in
     let s4      = subst_dp1 s3 k (Sup vl (Dp1 a) (Dp1 b)) in
@@ -273,9 +287,10 @@ dup_sup s k l vl va vb t
 -- k₁ ← vk
 -- t
 dup_nam s k l vk t =
-  let s0 = subst_dp0 s  k (Nam vk) in
-  let s1 = subst_dp1 s0 k (Nam vk) in
-  wnf s1 t
+  let s0 = inc_inters s in
+  let s1 = subst_dp0 s0 k (Nam vk) in
+  let s2 = subst_dp1 s1 k (Nam vk) in
+  wnf s2 t
 
 -- ! k &L = (vf vx); t
 -- --------------------- dup-dry
@@ -285,7 +300,8 @@ dup_nam s k l vk t =
 -- k₁ ← (f₁ x₁)
 -- t
 dup_dry s k l vf vx t =
-  let (s1, f) = fresh_dup s in
+  let s0      = inc_inters s in
+  let (s1, f) = fresh_dup s0 in
   let (s2, x) = fresh_dup s1 in
   let s3      = subst_dp0 s2 k (Dry (Dp0 f) (Dp0 x)) in
   let s4      = subst_dp1 s3 k (Dry (Dp1 f) (Dp1 x)) in
@@ -340,8 +356,154 @@ nf s x = let (s0,x0) = wnf s x in go s0 x0 where
 -- Main
 -- ====
 
+
+
+-- f04 = """
+-- λf. !F00 &A = f;
+    -- !F01 &A = λx00.(F00₀ (F00₁ x00));
+    -- !F02 &A = λx01.(F01₀ (F01₁ x01));
+    -- !F03 &A = λx02.(F02₀ (F02₁ x02));
+    -- λx03.(F03₀ (F03₁ x03))
+-- """
+
+-- f08 = """
+-- λf. !F00 &A = f;
+    -- !F01 &A = λx00.(F00₀ (F00₁ x00));
+    -- !F02 &A = λx01.(F01₀ (F01₁ x01));
+    -- !F03 &A = λx02.(F02₀ (F02₁ x02));
+    -- !F04 &A = λx03.(F03₀ (F03₁ x03));
+    -- !F05 &A = λx04.(F04₀ (F04₁ x04));
+    -- !F06 &A = λx05.(F05₀ (F05₁ x05));
+    -- !F07 &A = λx06.(F06₀ (F06₁ x06));
+    -- λx07.(F07₀ (F07₁ x07))
+-- """
+
+-- f12 = """
+-- λf. !F00 &A = f;
+    -- !F01 &A = λx00.(F00₀ (F00₁ x00));
+    -- !F02 &A = λx01.(F01₀ (F01₁ x01));
+    -- !F03 &A = λx02.(F02₀ (F02₁ x02));
+    -- !F04 &A = λx03.(F03₀ (F03₁ x03));
+    -- !F05 &A = λx04.(F04₀ (F04₁ x04));
+    -- !F06 &A = λx05.(F05₀ (F05₁ x05));
+    -- !F07 &A = λx06.(F06₀ (F06₁ x06));
+    -- !F08 &A = λx07.(F07₀ (F07₁ x07));
+    -- !F09 &A = λx08.(F08₀ (F08₁ x08));
+    -- !F10 &A = λx09.(F09₀ (F09₁ x09));
+    -- !F11 &A = λx10.(F10₀ (F10₁ x10));
+    -- λx11.(F11₀ (F11₁ x11))
+-- """
+
+-- f16 = """
+-- λf. !F00 &A = f;
+    -- !F01 &A = λx00.(F00₀ (F00₁ x00));
+    -- !F02 &A = λx01.(F01₀ (F01₁ x01));
+    -- !F03 &A = λx02.(F02₀ (F02₁ x02));
+    -- !F04 &A = λx03.(F03₀ (F03₁ x03));
+    -- !F05 &A = λx04.(F04₀ (F04₁ x04));
+    -- !F06 &A = λx05.(F05₀ (F05₁ x05));
+    -- !F07 &A = λx06.(F06₀ (F06₁ x06));
+    -- !F08 &A = λx07.(F07₀ (F07₁ x07));
+    -- !F09 &A = λx08.(F08₀ (F08₁ x08));
+    -- !F10 &A = λx09.(F09₀ (F09₁ x09));
+    -- !F11 &A = λx10.(F10₀ (F10₁ x10));
+    -- !F12 &A = λx11.(F11₀ (F11₁ x11));
+    -- !F13 &A = λx12.(F12₀ (F12₁ x12));
+    -- !F14 &A = λx13.(F13₀ (F13₁ x13));
+    -- !F15 &A = λx14.(F14₀ (F14₁ x14));
+    -- λx15.(F15₀ (F15₁ x15))
+-- """
+
+-- f20 = """
+-- λf. !F00 &A = f;
+    -- !F01 &A = λx00.(F00₀ (F00₁ x00));
+    -- !F02 &A = λx01.(F01₀ (F01₁ x01));
+    -- !F03 &A = λx02.(F02₀ (F02₁ x02));
+    -- !F04 &A = λx03.(F03₀ (F03₁ x03));
+    -- !F05 &A = λx04.(F04₀ (F04₁ x04));
+    -- !F06 &A = λx05.(F05₀ (F05₁ x05));
+    -- !F07 &A = λx06.(F06₀ (F06₁ x06));
+    -- !F08 &A = λx07.(F07₀ (F07₁ x07));
+    -- !F09 &A = λx08.(F08₀ (F08₁ x08));
+    -- !F10 &A = λx09.(F09₀ (F09₁ x09));
+    -- !F11 &A = λx10.(F10₀ (F10₁ x10));
+    -- !F12 &A = λx11.(F11₀ (F11₁ x11));
+    -- !F13 &A = λx12.(F12₀ (F12₁ x12));
+    -- !F14 &A = λx13.(F13₀ (F13₁ x13));
+    -- !F15 &A = λx14.(F14₀ (F14₁ x14));
+    -- !F16 &A = λx15.(F15₀ (F15₁ x15));
+    -- !F17 &A = λx16.(F16₀ (F16₁ x16));
+    -- !F18 &A = λx17.(F17₀ (F17₁ x17));
+    -- !F19 &A = λx18.(F18₀ (F18₁ x18));
+    -- λx19.(F19₀ (F19₁ x19))
+-- """
+
+-- f24 = """
+-- λf. !F00 &A = f;
+    -- !F01 &A = λx00.(F00₀ (F00₁ x00));
+    -- !F02 &A = λx01.(F01₀ (F01₁ x01));
+    -- !F03 &A = λx02.(F02₀ (F02₁ x02));
+    -- !F04 &A = λx03.(F03₀ (F03₁ x03));
+    -- !F05 &A = λx04.(F04₀ (F04₁ x04));
+    -- !F06 &A = λx05.(F05₀ (F05₁ x05));
+    -- !F07 &A = λx06.(F06₀ (F06₁ x06));
+    -- !F08 &A = λx07.(F07₀ (F07₁ x07));
+    -- !F09 &A = λx08.(F08₀ (F08₁ x08));
+    -- !F10 &A = λx09.(F09₀ (F09₁ x09));
+    -- !F11 &A = λx10.(F10₀ (F10₁ x10));
+    -- !F12 &A = λx11.(F11₀ (F11₁ x11));
+    -- !F13 &A = λx12.(F12₀ (F12₁ x12));
+    -- !F14 &A = λx13.(F13₀ (F13₁ x13));
+    -- !F15 &A = λx14.(F14₀ (F14₁ x14));
+    -- !F16 &A = λx15.(F15₀ (F15₁ x15));
+    -- !F17 &A = λx16.(F16₀ (F16₁ x16));
+    -- !F18 &A = λx17.(F17₀ (F17₁ x17));
+    -- !F19 &A = λx18.(F18₀ (F18₁ x18));
+    -- !F20 &A = λx19.(F19₀ (F19₁ x19));
+    -- !F21 &A = λx20.(F20₀ (F20₁ x20));
+    -- !F22 &A = λx21.(F21₀ (F21₁ x21));
+    -- !F23 &A = λx22.(F22₀ (F22₁ x22));
+    -- λx23.(F23₀ (F23₁ x23))
+-- """
+
+-- TODO: implement a generic function 'f :: Int -> String' that returns the equivalent of f_n
+f :: Int -> String
+f n = "λf. " ++ dups ++ final where
+  dups  = concat [dup i | i <- [0..n-1]]
+  dup 0 = "!F00 &A = f;\n    "
+  dup i = "!F" ++ pad i ++ " &A = λx" ++ pad (i-1) ++ ".(F" ++ pad (i-1) ++ "₀ (F" ++ pad (i-1) ++ "₁ x" ++ pad (i-1) ++ "));\n    "
+  final = "λx" ++ pad (n-1) ++ ".(F" ++ pad (n-1) ++ "₀ (F" ++ pad (n-1) ++ "₁ x" ++ pad (n-1) ++ "))"
+  pad x = if x < 10 then "0" ++ show x else show x
+
+term = read_term $ "((" ++ f 4 ++ " λX.((X λT0.λF0.F0) λT1.λF1.T1)) λT2.λF2.T2)"
+
 main :: IO ()
 main = do
-  -- let main = read_term "! F &L = λNx. λNt. λNf. ((Nx Nf) Nt); &L{F₀,F₁}"
-  let main = read_term "(λf. !F00&A=f; !F01&A=λx00.(F00₀ (F00₁ x00)); !F02&A=λx01.(F01₀ (F01₁ x01)); λx02. (F02₀ (F02₁ x02)) λB.λT.λF.((B F) T))"
-  print $ snd $ nf env main
+  let res = nf env term
+  print $          snd $ res
+  print $ inters $ fst $ res
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
