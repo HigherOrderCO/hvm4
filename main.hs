@@ -1,423 +1,509 @@
-{-# LANGUAGE BangPatterns #-}
-{-# OPTIONS_GHC -O2 #-}
+{-# LANGUAGE MultilineStrings #-}
 
-import Control.Monad (replicateM, when)
+import Data.Char (isAlphaNum)
+import Data.Function (fix)
 import Data.IORef
-import System.CPUTime (getCPUTime)
-import System.IO (hPutStrLn, stderr)
-import qualified Data.IntMap.Strict as IntMap
+import Debug.Trace
+import System.IO.Unsafe
+import Text.ParserCombinators.ReadP
+import qualified Data.Map as M
 
--- Definitions
--- ===========
+type Lab   = String
+type Name  = String
+type Map a = M.Map String a
 
--- Use Int for Names and Labels for maximum performance.
-type Lab   = Int
-type Name  = Int
-
--- Map a is a mutable IntMap stored inside an IORef.
-type Map a = IORef (IntMap.IntMap a)
-
--- Optimized Term data structure. Strict fields and UNPACK pragmas.
+-- dp0 ::= x₀
+-- dp1 ::= x₁
+-- era ::= &{}
+-- sup ::= &L{a,b}
+-- dup ::= !x&L=v;t
+-- var ::= x
+-- lam ::= λx.f
+-- app ::= (f x)
+-- nam ::= name
+-- dry ::= (name arg)
 data Term
-  = Nam {-# UNPACK #-} !Name
-  | Var {-# UNPACK #-} !Name
-  | Dp0 {-# UNPACK #-} !Name
-  | Dp1 {-# UNPACK #-} !Name
-  | Era
-  | Sup {-# UNPACK #-} !Lab !Term !Term
-  | Dup {-# UNPACK #-} !Name {-# UNPACK #-} !Lab !Term !Term
-  | Lam {-# UNPACK #-} !Name !Term
-  | Dry !Term !Term
-  | App !Term !Term
+  = Nam Name
+  | Var Name
+  | Dp0 Name
+  | Dp1 Name
+  | Era
+  | Sup Lab Term Term
+  | Dup Name Lab Term Term
+  | Lam Name Term
+  | Abs Name Term
+  | Dry Term Term
+  | App Term Term
 
--- A minimal Show instance using Int IDs.
 instance Show Term where
-  show (Nam k)       = show k
-  show (Dry f x)     = "(" ++ show f ++ " " ++ show x ++ ")"
-  show (Var k)       = show k
-  show (Dp0 k)       = show k ++ "₀"
-  show (Dp1 k)       = show k ++ "₁"
-  show Era           = "&{}"
-  show (Sup l a b)   = "&" ++ show l ++ "{" ++ show a ++ "," ++ show b ++ "}"
-  show (Dup k l v t) = "!" ++ show k ++ "&" ++ show l ++ "=" ++ show v ++ ";" ++ show t
-  show (Lam k f)     = "λ" ++ show k ++ "." ++ show f
-  show (App f x)     = "(" ++ show f ++ " " ++ show x ++ ")"
+  show (Nam k)       = k
+  show (Dry f x)     = "(" ++ show f ++ " " ++ show x ++ ")"
+  show (Var k)       = k
+  show (Dp0 k)       = k ++ "₀"
+  show (Dp1 k)       = k ++ "₁"
+  show Era           = "&{}"
+  show (Sup l a b)   = "&" ++ l ++ "{" ++ show a ++ "," ++ show b ++ "}"
+  show (Dup k l v t) = "!" ++ k ++ "&" ++ l ++ "=" ++ show v ++ ";" ++ show t
+  show (Lam k f)     = "λ" ++ k ++ "." ++ show f
+  show (Abs k f)     = "λ" ++ k ++ "." ++ show f
+  show (App f x)     = "(" ++ show f ++ " " ++ show x ++ ")"
 
 -- Environment
 -- ===========
 
 data Env = Env
-  { inters  :: !(IORef Int)
-  , id_new  :: !(IORef Int)
-  , var_map :: !(Map Term)
-  , dp0_map :: !(Map Term)
-  , dp1_map :: !(Map Term)
-  , dup_map :: !(Map (Lab,Term))
-  }
+  { inters  :: Int
+  , var_new :: Int
+  , dup_new :: Int
+  , var_map :: Map Term
+  , dp0_map :: Map Term
+  , dp1_map :: Map Term
+  , dup_map :: Map (Lab,Term)
+  } deriving Show
 
-newEnv :: IO Env
-newEnv = do
-  i   <- newIORef 0
-  idn <- newIORef 0
-  vm  <- newIORef IntMap.empty
-  d0m <- newIORef IntMap.empty
-  d1m <- newIORef IntMap.empty
-  dm  <- newIORef IntMap.empty
-  return $ Env i idn vm d0m d1m dm
+names :: String -> [String]
+names abc = fix $ \x -> [""] ++ concatMap (\s -> Prelude.map (:s) abc) x
 
--- Environment Operations
--- ======================
+env :: Env
+env = Env 0 0 0 M.empty M.empty M.empty M.empty
 
--- Strict atomic increment for the interaction counter.
-inc_inters :: Env -> IO ()
-inc_inters e = atomicModifyIORef' (inters e) (\x -> (x+1, ()))
-{-# INLINE inc_inters #-}
+fresh :: (Env -> Int) -> (Env -> Int -> Env) -> String -> Env -> (Env, String)
+fresh get set chars s = (set s (get s + 1), "$" ++ (names chars) !! (get s + 1))
 
--- Fresh name generation (O(1)).
-fresh :: Env -> IO Name
-fresh e = atomicModifyIORef' (id_new e) (\n -> (n + 1, n))
-{-# INLINE fresh #-}
+fresh_var = fresh var_new (\s n -> s { var_new = n }) ['a'..'z']
+fresh_dup = fresh dup_new (\s n -> s { dup_new = n }) ['A'..'Z']
 
--- Substitution (O(log n) map update).
-subst :: Map a -> Name -> a -> IO ()
-subst vec k v = atomicModifyIORef' vec (\m -> (IntMap.insert k v m, ()))
-{-# INLINE subst #-}
+subst :: (Env -> Map a) -> (Env -> Map a -> Env) -> Env -> String -> a -> Env
+subst get set s k v = set s (M.insert k v (get s))
 
-subst_var :: Env -> Name -> Term -> IO ()
-subst_var e k v = subst (var_map e) k v
-{-# INLINE subst_var #-}
+subst_var = subst var_map (\s m -> s { var_map = m })
+subst_dp0 = subst dp0_map (\s m -> s { dp0_map = m })
+subst_dp1 = subst dp1_map (\s m -> s { dp1_map = m })
+delay_dup = subst dup_map (\s m -> s { dup_map = m })
 
-subst_dp0 :: Env -> Name -> Term -> IO ()
-subst_dp0 e k v = subst (dp0_map e) k v
-{-# INLINE subst_dp0 #-}
+taker :: (Env -> Map a) -> (Env -> Map a -> Env) -> Env -> String -> (Maybe a, Env)
+taker get set s k = let (mt, m) = M.updateLookupWithKey (\_ _ -> Nothing) k (get s) in (mt, set s m)
 
-subst_dp1 :: Env -> Name -> Term -> IO ()
-subst_dp1 e k v = subst (dp1_map e) k v
-{-# INLINE subst_dp1 #-}
+take_var = taker var_map (\s m -> s { var_map = m })
+take_dp0 = taker dp0_map (\s m -> s { dp0_map = m })
+take_dp1 = taker dp1_map (\s m -> s { dp1_map = m })
+take_dup = taker dup_map (\s m -> s { dup_map = m })
 
-delay_dup :: Env -> Name -> (Lab, Term) -> IO ()
-delay_dup e k lv = subst (dup_map e) k lv
-{-# INLINE delay_dup #-}
+inc_inters :: Env -> Env
+inc_inters s = s { inters = inters s + 1 }
 
--- Taker (O(log n) map read and clear).
--- Implements linear substitution: read once and clear the slot.
-taker :: Map a -> Name -> IO (Maybe a)
-taker vec k =
-  atomicModifyIORef' vec $ \m ->
-    case IntMap.lookup k m of
-      Just v  -> (IntMap.delete k m, Just v)
-      Nothing -> (m, Nothing)
-{-# INLINE taker #-}
+-- Parsing
+-- =======
 
-take_var :: Env -> Name -> IO (Maybe Term)
-take_var e = taker (var_map e)
-{-# INLINE take_var #-}
+lexeme :: ReadP a -> ReadP a
+lexeme p = skipSpaces *> p
 
-take_dp0 :: Env -> Name -> IO (Maybe Term)
-take_dp0 e = taker (dp0_map e)
-{-# INLINE take_dp0 #-}
+name :: ReadP String
+name = lexeme parse_nam
 
-take_dp1 :: Env -> Name -> IO (Maybe Term)
-take_dp1 e = taker (dp1_map e)
-{-# INLINE take_dp1 #-}
+parse_term :: ReadP Term
+parse_term = lexeme $ choice
+  [ parse_lam
+  , parse_dup
+  , parse_app
+  , parse_sup
+  , parse_era
+  , parse_var
+  ]
 
-take_dup :: Env -> Name -> IO (Maybe (Lab, Term))
-take_dup e = taker (dup_map e)
-{-# INLINE take_dup #-}
+parse_app :: ReadP Term
+parse_app = do
+  lexeme (char '(')
+  ts <- many1 parse_term
+  lexeme (char ')')
+  case ts of
+    (t:rest) -> return (Prelude.foldl App t rest)
+    _        -> pfail
 
+parse_lam :: ReadP Term
+parse_lam = do
+  lexeme (choice [char 'λ', char '\\'])
+  k <- name
+  lexeme (char '.')
+  body <- parse_term
+  return $ Lam k body
 
--- Evaluation (Weak Head Normal Form)
+parse_dup :: ReadP Term
+parse_dup = do
+  lexeme (char '!')
+  k <- name
+  lexeme (char '&')
+  l <- name
+  lexeme (char '=')
+  v <- parse_term
+  lexeme (char ';')
+  t <- parse_term
+  return $ Dup k l v t
+
+parse_sup :: ReadP Term
+parse_sup = do
+  lexeme (char '&')
+  l <- name
+  lexeme (char '{')
+  a <- parse_term
+  lexeme (char ',')
+  b <- parse_term
+  lexeme (char '}')
+  return $ Sup l a b
+
+parse_era :: ReadP Term
+parse_era = lexeme (string "&{}") >> return Era
+
+parse_var :: ReadP Term
+parse_var = do
+  k <- name
+  choice
+    [ string "₀"  >> return (Dp0 k)
+    , string "₁"  >> return (Dp1 k)
+    , return (Var k)
+    ]
+
+parse_nam :: ReadP String
+parse_nam = munch1 $ \c
+  -> c >= 'a' && c <= 'z'
+  || c >= 'A' && c <= 'Z'
+  || c >= '0' && c <= '9'
+  || c == '_' || c == '/'
+
+read_term :: String -> Term
+read_term s = case readP_to_S (parse_term <* skipSpaces <* eof) s of
+  [(t, "")] -> t
+  _         -> error "bad-parse"
+
+-- Evaluation
 -- ==========
 
-wnf :: Env -> Term -> IO Term
-wnf e t = go t
-  where
-    go (App f x)     = do
-      !f0 <- wnf e f
-      app e f0 x
-    go (Dup k l v t) = do
-      delay_dup e k (l,v)
-      wnf e t
-    go (Var x)       = var e x
-    go (Dp0 x)       = dp0 e x
-    go (Dp1 x)       = dp1 e x
-    go f             = return f
+wnf :: Env -> Term -> (Env,Term)
+wnf s t = go s t where
+  go s (App f x)     = let (s0,f0) = wnf s f in app s0 f0 x
+  go s (Dup k l v t) = wnf (delay_dup s k (l,v)) t
+  go s (Var x)       = var s x
+  go s (Dp0 x)       = dp0 s x
+  go s (Dp1 x)       = dp1 s x
+  go s f             = (s,f)
 
--- Application dispatcher
-app :: Env -> Term -> Term -> IO Term
-app e (Lam fk ff)   x = app_lam e fk ff x
-app e (Sup fl fa fb) x = app_sup e fl fa fb x
-app e (Nam fk)      x = app_nam e fk x
-app e (Dry df dx)   x = app_dry e df dx x
-app e f             x = return $ App f x
-{-# INLINE app #-}
+app :: Env -> Term -> Term -> (Env,Term)
+app s (Nam fk)       x = app_nam s fk x
+app s (Dry df dx)    x = app_dry s df dx x
+app s (Lam fk ff)    x = app_lam s fk ff x
+app s (Sup fl fa fb) x = app_sup s fl fa fb x
+app s f              x = (s , App f x)
 
--- Duplication dispatcher
-dup :: Env -> Name -> Lab -> Term -> Term -> IO Term
-dup e k l (Lam vk vf)   t = dup_lam e k l vk vf t
-dup e k l (Sup vl va vb) t = dup_sup e k l vl va vb t
-dup e k l (Nam vk)      t = dup_nam e k l vk t
-dup e k l (Dry vf vx)   t = dup_dry e k l vf vx t
-dup e k l v             t = return $ Dup k l v t
-{-# INLINE dup #-}
+dup :: Env -> String -> Lab -> Term -> Term -> (Env,Term)
+dup s k l (Nam vk)       t = dup_nam s k l vk t
+dup s k l (Dry vf vx)    t = dup_dry s k l vf vx t
+dup s k l (Lam vk vf)    t = dup_lam s k l vk vf t
+dup s k l (Sup vl va vb) t = dup_sup s k l vl va vb t
+dup s k l v              t = (s , Dup k l v t)
 
 -- Interactions
 -- ============
 
--- (λx.f v) -> f[x<-v]
-app_lam :: Env -> Name -> Term -> Term -> IO Term
-app_lam e fx ff v = do
-  inc_inters e
-  subst_var e fx v
-  wnf e ff
+-- (λx.f v)
+-- ---------- app-lam
+-- x ← v
+-- f
+app_lam s fx ff v = 
+  let s0 = inc_inters s in
+  let s1 = subst_var s0 fx v in
+  wnf s1 ff
 
--- (&L{fa,fb} v) -> !x&L=v; &L{(fa x₀),(fb x₁)}
-app_sup :: Env -> Lab -> Term -> Term -> Term -> IO Term
-app_sup e fL fa fb v = do
-  inc_inters e
-  x <- fresh e
-  let app0 = App fa (Dp0 x)
-  let app1 = App fb (Dp1 x)
-  let sup  = Sup fL app0 app1
-  -- Optimization: Inline the Dup effect instead of constructing the Dup term.
-  -- Dup x fL v sup => delay_dup x (fL, v); wnf sup
-  delay_dup e x (fL, v)
-  wnf e sup
+-- (&fL{fa,fb} v)
+-- -------------------- app-sup
+-- ! x &fL = v
+-- &fL{(fa x₀),(fa x₁)}
+app_sup s fL fa fb v =
+  let s0     = inc_inters s in
+  let (s1,x) = fresh_dup s0 in
+  let app0   = App fa (Dp0 x) in
+  let app1   = App fb (Dp1 x) in
+  let sup    = Sup fL app0 app1 in
+  let dup    = Dup x fL v sup in
+  wnf s1 dup
 
--- (Nam v)
-app_nam :: Env -> Name -> Term -> IO Term
-app_nam e fk v = do
-    inc_inters e
-    return $ Dry (Nam fk) v
+-- (fk v)
+-- ------ app-nam
+-- (fk v)
+app_nam s fk v = (inc_inters s, Dry (Nam fk) v)
 
--- (Dry v)
-app_dry :: Env -> Term -> Term -> Term -> IO Term
-app_dry e df dx v = do
-    inc_inters e
-    return $ Dry (Dry df dx) v
+-- ((df dx) v)
+-- ----------- app-dry
+-- ((df dx) v)
+app_dry s df dx v = (inc_inters s, Dry (Dry df dx) v)
 
--- !k&L = λvk.vf; t -> !g&L=vf; t[k₀<-λx0.(g₀), k₁<-λx1.(g₁), vk<-&L{x0,x1}]
-dup_lam :: Env -> Name -> Lab -> Name -> Term -> Term -> IO Term
-dup_lam e k l vk vf t = do
-  inc_inters e
-  x0 <- fresh e
-  x1 <- fresh e
-  g  <- fresh e
-  subst_dp0 e k (Lam x0 (Dp0 g))
-  subst_dp1 e k (Lam x1 (Dp1 g))
-  subst_var e vk (Sup l (Var x0) (Var x1))
-  -- Optimization: Inline the Dup effect.
-  delay_dup e g (l, vf)
-  wnf e t
+-- ! k &L = λvk.vf; t
+-- ------------------ dup-lam
+-- k₀ ← λx0.g0
+-- k₁ ← λx1.g1
+-- vk ← &L{x0,x1}
+-- ! g &L = vf
+-- t
+dup_lam s k l vk vf t =
+  let s0       = inc_inters s in
+  let (s1, x0) = fresh_var s0 in
+  let (s2, x1) = fresh_var s1 in
+  let (s3, g)  = fresh_dup s2 in
+  let s4       = subst_dp0 s3 k  (Lam x0 (Dp0 g)) in
+  let s5       = subst_dp1 s4 k  (Lam x1 (Dp1 g)) in
+  let s6       = subst_var s5 vk (Sup l (Var x0) (Var x1)) in
+  let dup      = Dup g l vf t in
+  wnf s6 dup
 
--- !k&L = &vL{va,vb}; t
-dup_sup :: Env -> Name -> Lab -> Lab -> Term -> Term -> Term -> IO Term
-dup_sup e k l vl va vb t
-  | l == vl = do
-      -- Annihilation
-      inc_inters e
-      subst_dp0 e k va
-      subst_dp1 e k vb
-      wnf e t
-  | otherwise = do
-      -- Commutation
-      inc_inters e
-      a <- fresh e
-      b <- fresh e
-      subst_dp0 e k (Sup vl (Dp0 a) (Dp0 b))
-      subst_dp1 e k (Sup vl (Dp1 a) (Dp1 b))
-      -- Optimization: Inline the nested Dup effects.
-      delay_dup e a (l, va)
-      delay_dup e b (l, vb)
-      wnf e t
+-- ! k &L = &vL{va,vb}; t
+-- ---------------------- dup-sup (==)
+-- if l == vL:
+--   k₀ ← va
+--   k₁ ← vb
+--   t
+-- else:
+--   k₀ ← &vL{a₀,b₀}
+--   k₁ ← &vL{a₁,b₁}
+--   ! a &L = va
+--   ! b &L = vb
+--   t
+dup_sup s k l vl va vb t
+  | l == vl =
+    let s0 = inc_inters s in
+    let s1 = subst_dp0 s0 k va in
+    let s2 = subst_dp1 s1 k vb in
+    wnf s2 t
+  | l /= vl =
+    let s0      = inc_inters s in
+    let (s1, a) = fresh_dup s0 in
+    let (s2, b) = fresh_dup s1 in
+    let s3      = subst_dp0 s2 k (Sup vl (Dp0 a) (Dp0 b)) in
+    let s4      = subst_dp1 s3 k (Sup vl (Dp1 a) (Dp1 b)) in
+    let dup     = Dup a l va (Dup b l vb t) in
+    wnf s4 dup
 
--- !k&L = Nam; t
-dup_nam :: Env -> Name -> Lab -> Name -> Term -> IO Term
-dup_nam e k l vk t = do
-  inc_inters e
-  -- Share the constructor allocation
-  let !nam_vk = Nam vk
-  subst_dp0 e k nam_vk
-  subst_dp1 e k nam_vk
-  wnf e t
+-- ! k &L = vk; t
+-- -------------- dup-nam
+-- k₀ ← vk
+-- k₁ ← vk
+-- t
+dup_nam s k l vk t =
+  let s0 = inc_inters s in
+  let s1 = subst_dp0 s0 k (Nam vk) in
+  let s2 = subst_dp1 s1 k (Nam vk) in
+  wnf s2 t
 
--- !k&L = Dry; t
-dup_dry :: Env -> Name -> Lab -> Term -> Term -> Term -> IO Term
-dup_dry e k l vf vx t = do
-  inc_inters e
-  f <- fresh e
-  x <- fresh e
-  subst_dp0 e k (Dry (Dp0 f) (Dp0 x))
-  subst_dp1 e k (Dry (Dp1 f) (Dp1 x))
-  -- Optimization: Inline the nested Dup effects.
-  delay_dup e f (l, vf)
-  delay_dup e x (l, vx)
-  wnf e t
-
--- Variable lookups
--- ================
+-- ! k &L = (vf vx); t
+-- --------------------- dup-dry
+-- ! f &L = vf
+-- ! x &L = vx
+-- k₀ ← (f₀ x₀)
+-- k₁ ← (f₁ x₁)
+-- t
+dup_dry s k l vf vx t =
+  let s0      = inc_inters s in
+  let (s1, f) = fresh_dup s0 in
+  let (s2, x) = fresh_dup s1 in
+  let s3      = subst_dp0 s2 k (Dry (Dp0 f) (Dp0 x)) in
+  let s4      = subst_dp1 s3 k (Dry (Dp1 f) (Dp1 x)) in
+  let dup     = Dup f l vf (Dup x l vx t) in
+  wnf s4 dup
 
 -- x
-var :: Env -> Name -> IO Term
-var e k = do
-  mt <- take_var e k
-  case mt of
-    Just t  -> wnf e t
-    Nothing -> return $ Var k
-
--- Common logic for Dp0 and Dp1 lookups
-dp_common :: (Env -> Name -> IO (Maybe Term)) -> (Name -> Term) -> Env -> Name -> IO Term
-dp_common take_dp constructor e k = do
-  mt <- take_dp e k
-  case mt of
-    Just t  -> wnf e t
-    Nothing -> do
-      -- Check for delayed duplication if the specific side (0 or 1) is not yet available.
-      mlv <- take_dup e k
-      case mlv of
-        Just (l, v) -> do
-            -- Normalize V before the interaction.
-            !v0 <- wnf e v
-            -- Trigger the duplication interaction. The continuation 't' is the Dp variable itself.
-            dup e k l v0 (constructor k)
-        Nothing -> return $ constructor k
+-- ------------ var
+-- var_map[x]
+var :: Env -> String -> (Env,Term)
+var s k = case take_var s k of
+  (Just t, s0)  -> wnf s0 t
+  (Nothing, _)  -> (s, Var k)
 
 -- x₀
-dp0 :: Env -> Name -> IO Term
-dp0 = dp_common take_dp0 Dp0
+-- ---------- dp0
+-- dp0_map[x]
+dp0 :: Env -> String -> (Env,Term)
+dp0 s k = case take_dp0 s k of
+  (Just t, s0)  -> wnf s0 t
+  (Nothing, _)  -> case take_dup s k of
+    (Just (l,v), s0) -> let (s1,v0) = wnf s0 v in dup s1 k l v0 (Dp0 k)
+    (Nothing, _)     -> (s, Dp0 k)
 
 -- x₁
-dp1 :: Env -> Name -> IO Term
-dp1 = dp_common take_dp1 Dp1
+-- ---------- dp1
+-- dp1_map[x]
+dp1 :: Env -> String -> (Env,Term)
+dp1 s k = case take_dp1 s k of
+  (Just t, s0)  -> wnf s0 t
+  (Nothing, _)  -> case take_dup s k of
+    (Just (l,v), s0) -> let (s1,v0) = wnf s0 v in dup s1 k l v0 (Dp1 k)
+    (Nothing, _)     -> (s, Dp1 k)
 
--- Normalization (Full normalization / Read-back)
+-- Normalization
 -- =============
 
-nf :: Env -> Term -> IO Term
-nf e x = do
-  !x0 <- wnf e x
-  go e x0
-  where
-    go e (Nam k)      = return $ Nam k
-    go e (Dry f x)    = Dry <$> nf e f <*> nf e x
-    go e (Var k)      = return $ Var k
-    go e (Dp0 k)      = return $ Dp0 k
-    go e (Dp1 k)      = return $ Dp1 k
-    go e Era          = return Era
-    go e (Sup l a b)  = Sup l <$> nf e a <*> nf e b
-    go e (Dup k l v t)= Dup k l <$> nf e v <*> nf e t
-    go e (App f x)    = App <$> nf e f <*> nf e x
-    go e (Lam k f)    = do
-      -- Normalize under a binder. This requires backtracking in the mutable environment.
-      -- We save the current binding, set the new binding (k -> Nam k for readback),
-      -- normalize the body, and then restore the old binding.
-      let vec = var_map e
+nf :: Env -> Term -> (Env,Term)
+nf s x = let (s0,x0) = wnf s x in go s0 x0 where
+  go s (Nam k)       = (s, Nam k)
+  go s (Dry f x)     = let (s0,f0) = nf s f in let (s1,x0) = nf s0 x in (s1, Dry f0 x0)
+  go s (Var k)       = (s, Var k)
+  go s (Dp0 k)       = (s, Dp0 k)
+  go s (Dp1 k)       = (s, Dp1 k)
+  go s Era           = (s, Era)
+  go s (Sup l a b)   = let (s0,a0) = nf s a in let (s1,b0) = nf s0 b in (s1, Sup l a0 b0)
+  go s (Dup k l v t) = let (s0,v0) = nf s v in let (s1,t0) = nf s0 t in (s1, Dup k l v0 t0)
+  go s (Lam k f)     = let (s0,f0) = nf (subst_var s k (Nam k)) f in (s0, Lam k f0)
+  go s (Abs k f)     = let (s0,f0) = nf s f in (s0, Abs k f0)
+  go s (App f x)     = let (s0,f0) = nf s f in let (s1,x0) = nf s0 x in (s1, App f0 x0)
 
-      -- 1. Backup
-      !maybe_old_v <- IntMap.lookup k <$> readIORef vec
-
-      -- 2. Substitute k -> Nam k
-      subst_var e k (Nam k)
-
-      -- 3. Normalize body
-      !f0 <- nf e f
-
-      -- 4. Restore
-      case maybe_old_v of
-        Just old -> subst_var e k old
-        Nothing  -> atomicModifyIORef' vec (\m -> (IntMap.delete k m, ()))
-
-      return $ Lam k f0
-
--- Main (Benchmark Setup)
+-- Main
 -- ====
 
--- Programmatic construction of the benchmark term (f N).
--- This avoids parsing and ensures we use Int identifiers from the start.
--- The benchmark calculates (2^N) applied to Not and True.
--- Term: ((f N) λX.((X False) True)) True)
 
-build_term :: Int -> IO (Term, Env)
-build_term n = do
-  e <- newEnv
 
-  -- Allocate Int IDs for the names used in the construction.
-  name_f <- fresh e  -- The function argument 'f'
-  name_X <- fresh e  -- Variables for 'Not'
-  name_T0 <- fresh e; name_F0 <- fresh e -- Variables for 'False' argument
-  name_T1 <- fresh e; name_F1 <- fresh e -- Variables for 'True' argument
-  name_T2 <- fresh e; name_F2 <- fresh e -- Variables for the final 'True' argument
+-- f04 = """
+-- λf. !F00 &A = f;
+    -- !F01 &A = λx00.(F00₀ (F00₁ x00));
+    -- !F02 &A = λx01.(F01₀ (F01₁ x01));
+    -- !F03 &A = λx02.(F02₀ (F02₁ x02));
+    -- λx03.(F03₀ (F03₁ x03))
+-- """
 
-  -- Variables x0..x(N-1) and F0..F(N-1)
-  names_x <- replicateM n (fresh e)
-  names_F <- replicateM n (fresh e)
+-- f08 = """
+-- λf. !F00 &A = f;
+    -- !F01 &A = λx00.(F00₀ (F00₁ x00));
+    -- !F02 &A = λx01.(F01₀ (F01₁ x01));
+    -- !F03 &A = λx02.(F02₀ (F02₁ x02));
+    -- !F04 &A = λx03.(F03₀ (F03₁ x03));
+    -- !F05 &A = λx04.(F04₀ (F04₁ x04));
+    -- !F06 &A = λx05.(F05₀ (F05₁ x05));
+    -- !F07 &A = λx06.(F06₀ (F06₁ x06));
+    -- λx07.(F07₀ (F07₁ x07))
+-- """
 
-  -- Superposition label 'A' (arbitrary constant Int)
-  let lab_A = 1
+-- f12 = """
+-- λf. !F00 &A = f;
+    -- !F01 &A = λx00.(F00₀ (F00₁ x00));
+    -- !F02 &A = λx01.(F01₀ (F01₁ x01));
+    -- !F03 &A = λx02.(F02₀ (F02₁ x02));
+    -- !F04 &A = λx03.(F03₀ (F03₁ x03));
+    -- !F05 &A = λx04.(F04₀ (F04₁ x04));
+    -- !F06 &A = λx05.(F05₀ (F05₁ x05));
+    -- !F07 &A = λx06.(F06₀ (F06₁ x06));
+    -- !F08 &A = λx07.(F07₀ (F07₁ x07));
+    -- !F09 &A = λx08.(F08₀ (F08₁ x08));
+    -- !F10 &A = λx09.(F09₀ (F09₁ x09));
+    -- !F11 &A = λx10.(F10₀ (F10₁ x10));
+    -- λx11.(F11₀ (F11₁ x11))
+-- """
 
-  -- Helper to build the structure: λxi.(Fi₀ (Fi₁ xi))
-  let build_body i =
-        let name_Fi = names_F !! i
-            name_xi = names_x !! i
-        in Lam name_xi (App (Dp0 name_Fi) (App (Dp1 name_Fi) (Var name_xi)))
+-- f16 = """
+-- λf. !F00 &A = f;
+    -- !F01 &A = λx00.(F00₀ (F00₁ x00));
+    -- !F02 &A = λx01.(F01₀ (F01₁ x01));
+    -- !F03 &A = λx02.(F02₀ (F02₁ x02));
+    -- !F04 &A = λx03.(F03₀ (F03₁ x03));
+    -- !F05 &A = λx04.(F04₀ (F04₁ x04));
+    -- !F06 &A = λx05.(F05₀ (F05₁ x05));
+    -- !F07 &A = λx06.(F06₀ (F06₁ x06));
+    -- !F08 &A = λx07.(F07₀ (F07₁ x07));
+    -- !F09 &A = λx08.(F08₀ (F08₁ x08));
+    -- !F10 &A = λx09.(F09₀ (F09₁ x09));
+    -- !F11 &A = λx10.(F10₀ (F10₁ x10));
+    -- !F12 &A = λx11.(F11₀ (F11₁ x11));
+    -- !F13 &A = λx12.(F12₀ (F12₁ x12));
+    -- !F14 &A = λx13.(F13₀ (F13₁ x13));
+    -- !F15 &A = λx14.(F14₀ (F14₁ x14));
+    -- λx15.(F15₀ (F15₁ x15))
+-- """
 
-  -- Final term in the sequence
-  let final_term = build_body (n-1)
+-- f20 = """
+-- λf. !F00 &A = f;
+    -- !F01 &A = λx00.(F00₀ (F00₁ x00));
+    -- !F02 &A = λx01.(F01₀ (F01₁ x01));
+    -- !F03 &A = λx02.(F02₀ (F02₁ x02));
+    -- !F04 &A = λx03.(F03₀ (F03₁ x03));
+    -- !F05 &A = λx04.(F04₀ (F04₁ x04));
+    -- !F06 &A = λx05.(F05₀ (F05₁ x05));
+    -- !F07 &A = λx06.(F06₀ (F06₁ x06));
+    -- !F08 &A = λx07.(F07₀ (F07₁ x07));
+    -- !F09 &A = λx08.(F08₀ (F08₁ x08));
+    -- !F10 &A = λx09.(F09₀ (F09₁ x09));
+    -- !F11 &A = λx10.(F10₀ (F10₁ x10));
+    -- !F12 &A = λx11.(F11₀ (F11₁ x11));
+    -- !F13 &A = λx12.(F12₀ (F12₁ x12));
+    -- !F14 &A = λx13.(F13₀ (F13₁ x13));
+    -- !F15 &A = λx14.(F14₀ (F14₁ x14));
+    -- !F16 &A = λx15.(F15₀ (F15₁ x15));
+    -- !F17 &A = λx16.(F16₀ (F16₁ x16));
+    -- !F18 &A = λx17.(F17₀ (F17₁ x17));
+    -- !F19 &A = λx18.(F18₀ (F18₁ x18));
+    -- λx19.(F19₀ (F19₁ x19))
+-- """
 
-  -- Construct the chain of duplications:
-  -- !F0 &A = f; !F1 &A = λx0.(F0₀ (F0₁ x0)); ...
-  let build_dup i body =
-        let name_Fi = names_F !! i
-        in if i == 0
-           then Dup name_Fi lab_A (Var name_f) body
-           else Dup name_Fi lab_A (build_body (i-1)) body
+-- f24 = """
+-- λf. !F00 &A = f;
+    -- !F01 &A = λx00.(F00₀ (F00₁ x00));
+    -- !F02 &A = λx01.(F01₀ (F01₁ x01));
+    -- !F03 &A = λx02.(F02₀ (F02₁ x02));
+    -- !F04 &A = λx03.(F03₀ (F03₁ x03));
+    -- !F05 &A = λx04.(F04₀ (F04₁ x04));
+    -- !F06 &A = λx05.(F05₀ (F05₁ x05));
+    -- !F07 &A = λx06.(F06₀ (F06₁ x06));
+    -- !F08 &A = λx07.(F07₀ (F07₁ x07));
+    -- !F09 &A = λx08.(F08₀ (F08₁ x08));
+    -- !F10 &A = λx09.(F09₀ (F09₁ x09));
+    -- !F11 &A = λx10.(F10₀ (F10₁ x10));
+    -- !F12 &A = λx11.(F11₀ (F11₁ x11));
+    -- !F13 &A = λx12.(F12₀ (F12₁ x12));
+    -- !F14 &A = λx13.(F13₀ (F13₁ x13));
+    -- !F15 &A = λx14.(F14₀ (F14₁ x14));
+    -- !F16 &A = λx15.(F15₀ (F15₁ x15));
+    -- !F17 &A = λx16.(F16₀ (F16₁ x16));
+    -- !F18 &A = λx17.(F17₀ (F17₁ x17));
+    -- !F19 &A = λx18.(F18₀ (F18₁ x18));
+    -- !F20 &A = λx19.(F19₀ (F19₁ x19));
+    -- !F21 &A = λx20.(F20₀ (F20₁ x20));
+    -- !F22 &A = λx21.(F21₀ (F21₁ x21));
+    -- !F23 &A = λx22.(F22₀ (F22₁ x22));
+    -- λx23.(F23₀ (F23₁ x23))
+-- """
 
-  let dups_term = foldr build_dup final_term [0..n-1]
+-- TODO: implement a generic function 'f :: Int -> String' that returns the equivalent of f_n
+f :: Int -> String
+f n = "λf. " ++ dups ++ final where
+  dups  = concat [dup i | i <- [0..n-1]]
+  dup 0 = "!F00 &A = f;\n    "
+  dup i = "!F" ++ pad i ++ " &A = λx" ++ pad (i-1) ++ ".(F" ++ pad (i-1) ++ "₀ (F" ++ pad (i-1) ++ "₁ x" ++ pad (i-1) ++ "));\n    "
+  final = "λx" ++ pad (n-1) ++ ".(F" ++ pad (n-1) ++ "₀ (F" ++ pad (n-1) ++ "₁ x" ++ pad (n-1) ++ "))"
+  pad x = if x < 10 then "0" ++ show x else show x
 
-  -- λf. dups_term
-  let f_term = Lam name_f dups_term
-
-  -- Arguments: arg1 (Not) and arg2 (True)
-
-  -- Church Boolean True: λT.λF.T
-  let church_true t f = Lam t (Lam f (Var t))
-  -- Church Boolean False: λT.λF.F
-  let church_false t f = Lam t (Lam f (Var f))
-
-  -- arg1 = Not = λX.((X False) True)
-  let arg1 = Lam name_X (App
-                (App (Var name_X) (church_false name_T0 name_F0))
-                (church_true name_T1 name_F1))
-
-  -- arg2 = True
-  let arg2 = church_true name_T2 name_F2
-
-  -- ((f_term arg1) arg2)
-  let term = App (App f_term arg1) arg2
-
-  return (term, e)
+term = read_term $ "((" ++ f 4 ++ " λX.((X λT0.λF0.F0) λT1.λF1.T1)) λT2.λF2.T2)"
 
 main :: IO ()
 main = do
-  let n = 18
-  -- 1. Setup: Build the term and initialize the environment
-  (!term, !env) <- build_term n
+  let res = nf env term
+  print $          snd $ res
+  print $ inters $ fst $ res
 
-  -- 2. Execution: Normalize the term
-  start <- getCPUTime
-  !res <- nf env term -- Force evaluation
-  end <- getCPUTime
 
-  -- 3. Output results
-  let duration = realToFrac (end - start) / 1e12 :: Double
-  interactions <- readIORef (inters env)
 
-  -- Print the resulting term and the interaction count (matching the original output format)
-  print res
-  print interactions
 
-  -- Optional: Print performance stats to stderr
-  hPutStrLn stderr $ "Time: " ++ show duration ++ " s"
-  when (duration > 0) $ do
-    let ips = fromIntegral interactions / duration
-    hPutStrLn stderr $ "Perf: " ++ show (round ips :: Integer) ++ " interactions/second"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
