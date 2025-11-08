@@ -1,23 +1,17 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE MagicHash #-}
 {-# OPTIONS_GHC -O2 #-}
 
 -- Import necessary standard libraries
 import Control.Monad (replicateM)
-import Data.Array.Base (unsafeRead, unsafeWrite)
-import Data.Array.IO
-import Data.Array.MArray (newArray)
 import Data.Bits (shiftL)
 import Data.Char (chr, ord)
 import Data.IORef
 import Data.List (foldl')
-import GHC.Prim (reallyUnsafePtrEquality#)
-import GHC.Types (isTrue#)
 import System.CPUTime
 import Text.ParserCombinators.ReadP
 import Text.Printf
-import Unsafe.Coerce (unsafeCoerce)
 import qualified Data.Map.Strict as M
+import qualified Data.IntMap.Strict as IM
 
 -- Internal representation (Int-based for speed)
 -- ==============================================
@@ -39,12 +33,6 @@ data Term
 
 -- Configuration
 -- =============
-
--- Increased maxSize to 128M. The previous size (50M) was insufficient because
--- fresh IDs now start at 16M. The benchmark requires ~50M fresh IDs, leading
--- to a maximum index of ~66M, which caused the buffer overflow (Segmentation Fault).
-maxSize :: Int
-maxSize = 30000000
 
 -- Namespace separation. We assume user-provided names are short (<= 4 chars).
 -- 64^4 = 16777216. Parsed IDs (Base-64) are below this boundary.
@@ -88,7 +76,7 @@ intToName n = reverse $ go (n + 1)
   where
     go 0 = ""
     go m = let (q, r) = (m - 1) `divMod` 26
-               c = chr (ord 'a' + r)
+               c      = chr (ord 'a' + r)
            in c : go q
 
 -- Parsing (Simplified and Idiomatic)
@@ -160,32 +148,17 @@ read_term s = case readP_to_S (parse_term <* skipSpaces <* eof) s of
   [(t, "")] -> t
   _         -> error "bad-parse"
 
--- Environment (Using Sentinel for performance)
+-- Environment
 -- ===================================================
-
--- We use the Sentinel mechanism for performance, avoiding Maybe overhead.
-data Sentinel = Sentinel
-sentinelObj :: Sentinel
-sentinelObj = Sentinel
-{-# NOINLINE sentinelObj #-}
-
-sentinelVal :: Term
-sentinelVal = unsafeCoerce sentinelObj
-{-# NOINLINE sentinelVal #-}
-
--- Fast pointer equality check to detect empty slots in the IOArray.
-isSentinel :: Term -> Bool
-isSentinel !p = isTrue# (reallyUnsafePtrEquality# p sentinelVal)
-{-# INLINE isSentinel #-}
 
 data Env = Env
   { inters       :: !(IORef Int)
   , id_new       :: !(IORef Int)
-  , var_map      :: !(IOArray Int Term)
-  , dp0_map      :: !(IOArray Int Term)
-  , dp1_map      :: !(IOArray Int Term)
-  , dup_map_term :: !(IOArray Int Term)
-  , dup_map_lab  :: !(IOUArray Int Lab)
+  , var_map      :: !(IORef (IM.IntMap Term))
+  , dp0_map      :: !(IORef (IM.IntMap Term))
+  , dp1_map      :: !(IORef (IM.IntMap Term))
+  , dup_map_term :: !(IORef (IM.IntMap Term))
+  , dup_map_lab  :: !(IORef (IM.IntMap Lab))
   }
 
 -- Initialize environment, starting the ID counter from freshIdStart.
@@ -193,12 +166,11 @@ newEnv :: IO Env
 newEnv = do
   i <- newIORef 0
   idn <- newIORef freshIdStart
-  let bounds = (0, maxSize - 1)
-  vm  <- newArray bounds sentinelVal
-  d0m <- newArray bounds sentinelVal
-  d1m <- newArray bounds sentinelVal
-  dmt <- newArray bounds sentinelVal
-  dml <- newArray bounds 0
+  vm  <- newIORef IM.empty
+  d0m <- newIORef IM.empty
+  d1m <- newIORef IM.empty
+  dmt <- newIORef IM.empty
+  dml <- newIORef IM.empty
   return $ Env i idn vm d0m d1m dmt dml
 
 inc_inters :: Env -> IO ()
@@ -207,45 +179,41 @@ inc_inters e = do
   writeIORef (inters e) (n + 1)
 {-# INLINE inc_inters #-}
 
--- Generates a fresh ID. Includes a bounds check for safety.
+-- Generates a fresh ID.
 fresh :: Env -> IO Name
 fresh e = do
   !n <- readIORef (id_new e)
-  -- FIX: Check bounds before returning the ID to prevent segmentation faults.
-  if n >= maxSize
-    then error $ "Error: Exceeded maxSize (" ++ show maxSize ++ "). Increase maxSize in configuration."
-    else do
-      writeIORef (id_new e) (n + 1)
-      return n
+  writeIORef (id_new e) (n + 1)
+  return n
 {-# INLINE fresh #-}
 
 subst_var :: Env -> Name -> Term -> IO ()
-subst_var e k v = unsafeWrite (var_map e) k v
+subst_var e k v = modifyIORef' (var_map e) (IM.insert k v)
 {-# INLINE subst_var #-}
 
 subst_dp0 :: Env -> Name -> Term -> IO ()
-subst_dp0 e k v = unsafeWrite (dp0_map e) k v
+subst_dp0 e k v = modifyIORef' (dp0_map e) (IM.insert k v)
 {-# INLINE subst_dp0 #-}
 
 subst_dp1 :: Env -> Name -> Term -> IO ()
-subst_dp1 e k v = unsafeWrite (dp1_map e) k v
+subst_dp1 e k v = modifyIORef' (dp1_map e) (IM.insert k v)
 {-# INLINE subst_dp1 #-}
 
 delay_dup :: Env -> Name -> Lab -> Term -> IO ()
 delay_dup e k l v = do
-  unsafeWrite (dup_map_term e) k v
-  unsafeWrite (dup_map_lab e) k l
+  modifyIORef' (dup_map_term e) (IM.insert k v)
+  modifyIORef' (dup_map_lab e) (IM.insert k l)
 {-# INLINE delay_dup #-}
 
--- Efficiently takes a term from an array slot, replacing it with the sentinel.
-taker_term :: IOArray Int Term -> Name -> IO (Maybe Term)
-taker_term arr k = do
-  !v <- unsafeRead arr k
-  if isSentinel v
-    then return Nothing
-    else do
+-- Efficiently takes a term from an IntMap, removing it.
+taker_term :: IORef (IM.IntMap Term) -> Name -> IO (Maybe Term)
+taker_term ref k = do
+  !m <- readIORef ref
+  case IM.lookup k m of
+    Nothing -> return Nothing
+    Just v -> do
       -- Clear the slot after taking (enforcing linearity/affinity)
-      unsafeWrite arr k sentinelVal
+      writeIORef ref (IM.delete k m)
       return (Just v)
 {-# INLINE taker_term #-}
 
@@ -263,13 +231,16 @@ take_dp1 e = taker_term (dp1_map e)
 
 take_dup :: Env -> Name -> IO (Maybe (Lab, Term))
 take_dup e k = do
-  !v <- unsafeRead (dup_map_term e) k
-  if isSentinel v
-    then return Nothing
-    else do
-      !l <- unsafeRead (dup_map_lab e) k
-      unsafeWrite (dup_map_term e) k sentinelVal
-      return (Just (l, v))
+  !mt <- readIORef (dup_map_term e)
+  case IM.lookup k mt of
+    Nothing -> return Nothing
+    Just v -> do
+      !ml <- readIORef (dup_map_lab e)
+      writeIORef (dup_map_term e) (IM.delete k mt)
+      writeIORef (dup_map_lab e) (IM.delete k ml)
+      case IM.lookup k ml of
+        Just l  -> return (Just (l, v))
+        Nothing -> return Nothing
 {-# INLINE take_dup #-}
 
 -- Evaluation (Weak Head Normal Form)
@@ -420,10 +391,14 @@ nf e d x = do
           let d' = d + 1
           let vec = var_map e
           -- Save, Substitute (k -> Var d), Normalize, Restore (Inlined bracket pattern)
-          !old_v <- unsafeRead vec k
-          unsafeWrite vec k (Var d)
+          !m <- readIORef vec
+          let !old_v = IM.lookup k m
+          writeIORef vec (IM.insert k (Var d) m)
           !f0 <- nf e d' f
-          unsafeWrite vec k old_v
+          !m' <- readIORef vec
+          case old_v of
+            Just ov -> writeIORef vec (IM.insert k ov m')
+            Nothing -> writeIORef vec (IM.delete k m')
           -- Return Lam with depth 'd' as the new ID
           return $ Lam d f0
         -- Dup case: Substitute Dp0/Dp1 'k' by Dp0/Dp1 'd', normalize body, restore env, return 'Dup d ...'.
@@ -432,17 +407,25 @@ nf e d x = do
           let d' = d + 1
           -- Substitute Dp0 (k -> Dp0 d) and save old value
           let vec0 = dp0_map e
-          !old_v0 <- unsafeRead vec0 k
-          unsafeWrite vec0 k (Dp0 d)
+          !m0 <- readIORef vec0
+          let !old_v0 = IM.lookup k m0
+          writeIORef vec0 (IM.insert k (Dp0 d) m0)
           -- Substitute Dp1 (k -> Dp1 d) and save old value
           let vec1 = dp1_map e
-          !old_v1 <- unsafeRead vec1 k
-          unsafeWrite vec1 k (Dp1 d)
+          !m1 <- readIORef vec1
+          let !old_v1 = IM.lookup k m1
+          writeIORef vec1 (IM.insert k (Dp1 d) m1)
           -- Normalize t
           !t0 <- nf e d' t
           -- Restore
-          unsafeWrite vec0 k old_v0
-          unsafeWrite vec1 k old_v1
+          !m0' <- readIORef vec0
+          case old_v0 of
+            Just ov0 -> writeIORef vec0 (IM.insert k ov0 m0')
+            Nothing -> writeIORef vec0 (IM.delete k m0')
+          !m1' <- readIORef vec1
+          case old_v1 of
+            Just ov1 -> writeIORef vec1 (IM.insert k ov1 m1')
+            Nothing -> writeIORef vec1 (IM.delete k m1')
           -- Return Dup with depth 'd' as the new ID
           return $ Dup d l v0 t0
 
@@ -483,7 +466,7 @@ f n = "λf. " ++ dups ++ final where
 main :: IO ()
 main = do
   -- Benchmark configuration: 2^22
-  let n = 20
+  let n = 22
   -- The term applies (2^22) to the 'False' church numeral (λT.λF.F), resulting in 'True' (λT.λF.T).
   let termStr = "((" ++ f n ++ " λX.((X λT0.λF0.F0) λT1.λF1.T1)) λT2.λF2.T2)"
 
