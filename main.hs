@@ -17,9 +17,8 @@
 -- | Cal ::= Term "~>" Term
 --
 -- Where:
--- 
--- Name ::= any sequence of base-64 chars in _ A-Z a-z 0-9 $
--- [T]  ::= any sequence of T separated by ","
+-- - Name ::= any sequence of base-64 chars in _ A-Z a-z 0-9 $
+-- - [T]  ::= any sequence of T separated by ","
 -- 
 -- In CoI:
 -- - Variables are affine (they must occur at most once)
@@ -56,29 +55,29 @@
 --   X₁ ← &R{A₁,B₁}
 -- 
 -- @foo
--- ------------------- ref
--- @foo ~> Book["foo"]
+-- ------------------ ref
+-- foo ~> Book["foo"]
 -- 
 -- ((f ~> λx.g) a)
--- --------------- cal-lam
+-- --------------- app-cal-lam
 -- x ← a
 -- (f x) ~> g
 -- 
 -- ((f ~> Λ{0:z;1+:s}) 0)
--- ---------------------- cal-swi-zer
+-- ---------------------- app-cal-swi-zer
 -- (f 0) ~> z
 -- 
 -- ((f ~> Λ{0:z;1+:s}) 1+n)
--- ------------------------ cal-swi-suc
+-- ------------------------ app-cal-swi-suc
 -- ((λp.(f 1+p) ~> s) n)
 -- 
 -- ((f ~> Λ{0:z;1+:s}) &L{a,b})
--- ---------------------------- cal-nat-sup
+-- ---------------------------- app-cal-swi-sup
 -- ! &L F = f
 -- ! &L Z = z
 -- ! &L N = s
--- &L{(F₀~>Λ{0:Z₀;1+:N₀} a)
---   ,(F₁~>Λ{0:Z₁;1+:N₀} b)}
+-- &L{((F₀ ~> Λ{0:Z₀;1+:N₀}) a)
+--   ,((F₁ ~> Λ{0:Z₁;1+:N₁}) b)}
 -- 
 -- ! &L X = f ~> g
 -- --------------- dup-cal
@@ -86,40 +85,6 @@
 -- ! &L G = g
 -- X₀ ← F₀ ~> G₀ 
 -- X₁ ← F₁ ~> G₁
--- 
--- Stacks are cloned through the following interactions:
--- 
--- ! S &L = []
--- ----------- dup-stack-nil
--- &L{[],[]}
--- 
--- ! S &L = (_ x)<>s
--- ----------------- dup-stack-con-app
--- ! X &L = x
--- ! S &L = s
--- &L{(_ X₀)<>S₀
---   ,(_ X₁)<>S₁}
--- 
--- ! A &A = _
--- ! &L S = A₀:s
--- ------------- dup-stack-con-dup
--- if L == A:
---   error -- FIXME: reason about later
--- else:
---   ! A0 &A = _
---   ! A1 &A = _
---   A₁ ← &L{A0₁,A1₁}
---   ! &L S = s
---   &L{A0₀:S₀
---     ,A0₁:S₁}
--- 
--- @sum = λ{
---   []: 0
---   <>: λ{
---     0: λxs. (@sum xs)
---     +: λx. λxs. (@sum x<>xs)
---   } == λx.λxs.(@sum x xs)
--- } == @sum
 
 {-# LANGUAGE BangPatterns #-}
 {-# OPTIONS_GHC -O2 #-}
@@ -160,8 +125,6 @@ data Term
 
 data Book = Book (M.Map Name Term)
 
--- data Spine = Spine Int ([Term] -> Term)
-
 -- Showing
 -- =======
 
@@ -183,9 +146,6 @@ instance Show Term where
 instance Show Book where
   show (Book m) = unlines [showFunc k ct | (k, ct) <- M.toList m]
     where showFunc k ct = "@" ++ int_to_name k ++ " = " ++ show ct
-
--- instance Show Spine where
-  -- show (Spine k f) = show (f (replicate k (Var 0)))
 
 -- Name Encoding/Decoding
 -- ======================
@@ -218,7 +178,7 @@ lexeme p = skipSpaces *> p
 parse_nam :: ReadP String
 parse_nam = lexeme $ munch1 (`M.member` char_map)
 
--- Two-phase term parsing to handle the "<>" operator correctly
+-- Two-phase term parsing to handle the "~>" operator correctly
 parse_term :: ReadP Term
 parse_term = do
   base <- parse_term_base
@@ -226,7 +186,7 @@ parse_term = do
 
 parse_term_base :: ReadP Term
 parse_term_base = lexeme $ choice
-  [ parse_lam
+  [ parse_lam_or_swi -- Updated to handle Lam and Swi
   , parse_dup
   , parse_app
   , parse_sup
@@ -239,7 +199,11 @@ parse_term_base = lexeme $ choice
 
 parse_term_suff :: Term -> ReadP Term
 parse_term_suff base = choice
-  [ return base ]
+  [ do lexeme (string "~>")
+       t <- parse_term
+       return (Cal base t)
+  , return base
+  ]
 
 parse_app :: ReadP Term
 parse_app = between (lexeme (char '(')) (lexeme (char ')')) $ do
@@ -247,13 +211,27 @@ parse_app = between (lexeme (char '(')) (lexeme (char ')')) $ do
   let (t:rest) = ts
   return (foldl' App t rest)
 
-parse_lam :: ReadP Term
-parse_lam = do
+parse_lam_or_swi :: ReadP Term
+parse_lam_or_swi = do
   lexeme (choice [char 'λ', char '\\'])
+  choice [parse_swi_body, parse_lam_body]
+
+parse_lam_body :: ReadP Term
+parse_lam_body = do
   k <- parse_nam
   lexeme (char '.')
   body <- parse_term
   return (Lam (name_to_int k) body)
+
+parse_swi_body :: ReadP Term
+parse_swi_body = do
+  between (lexeme (char '{')) (lexeme (char '}')) $ do
+    lexeme (string "0:")
+    z <- parse_term
+    lexeme (char ';')
+    lexeme (string "1+:")
+    s <- parse_term
+    return (Swi z s)
 
 parse_dup :: ReadP Term
 parse_dup = do
@@ -300,12 +278,11 @@ parse_var = do
   k <- parse_nam
   let kid = name_to_int k
   choice
-    [ string "₀"  >> return (Dp0 kid)
-    , string "₁"  >> return (Dp1 kid)
+    [ string "₀" >> return (Dp0 kid)
+    , string "₁" >> return (Dp1 kid)
     , return (Var kid)
     ]
 
--- Function definition parser
 parse_func :: ReadP (Name, Term)
 parse_func = do
   lexeme (char '@')
@@ -314,7 +291,6 @@ parse_func = do
   f <- parse_term
   return (name_to_int k, f)
 
--- Book parser
 parse_book :: ReadP Book
 parse_book = do
   skipSpaces
@@ -371,7 +347,8 @@ taker :: IORef (IM.IntMap a) -> Name -> IO (Maybe a)
 taker ref k = do
   !m <- readIORef ref
   case IM.lookup k m of
-    Nothing -> return Nothing
+    Nothing -> do
+      return Nothing
     Just v  -> do
       writeIORef ref (IM.delete k m)
       return (Just v)
@@ -422,7 +399,7 @@ wnf_enter e s (App f x) = do
   wnf_enter e (FApp x : s) f
 
 wnf_enter e s (Var k) = do
-  wnf_var e s k take_var Var
+  wnf_sub e s k take_var Var
 
 wnf_enter e s (Dup k l v t) = do
   regis_dup e k l v
@@ -432,19 +409,23 @@ wnf_enter e s (Dp0 k) = do
   mlv <- take_dup e k
   case mlv of
     Just (l, v) -> wnf_enter e (FDp0 k l : s) v
-    Nothing     -> wnf_var e s k take_dp0 Dp0
+    Nothing     -> wnf_sub e s k take_dp0 Dp0
 
 wnf_enter e s (Dp1 k) = do
   mlv <- take_dup e k
   case mlv of
     Just (l, v) -> wnf_enter e (FDp1 k l : s) v
-    Nothing     -> wnf_var e s k take_dp1 Dp1
+    Nothing     -> wnf_sub e s k take_dp1 Dp1
 
 wnf_enter e s (Ref k) = do
   let (Book m) = book e
   case M.lookup k m of
-    Just ct -> undefined -- TODO
-    Nothing -> error $ "Reference not found: " ++ int_to_name k
+    Just f  -> do
+      inc_inters e
+      g <- wnf_alloc e f
+      wnf_enter e s (Cal (Var k) g)
+    Nothing -> do
+      error $ "UndefinedReference: " ++ int_to_name k
 
 wnf_enter e s f = do
   wnf_unwind e s f
@@ -458,22 +439,25 @@ wnf_unwind e (frame:s) v = case frame of
   FApp x -> case v of
     Lam fk ff    -> wnf_app_lam e s fk ff x
     Sup fl fa fb -> wnf_app_sup e s fl fa fb x
+    Cal f g      -> wnf_app_cal e s f g x
     f            -> wnf_unwind e s (App f x)
   FDp0 k l -> case v of
     Lam vk vf    -> wnf_dpn_lam e s k l vk vf (Dp0 k)
     Sup vl va vb -> wnf_dpn_sup e s k l vl va vb (Dp0 k)
+    Cal f g      -> wnf_dpn_cal e s k l f g (Dp0 k)
     val          -> wnf_unwind e s (Dup k l val (Dp0 k))
   FDp1 k l -> case v of
     Lam vk vf    -> wnf_dpn_lam e s k l vk vf (Dp1 k)
     Sup vl va vb -> wnf_dpn_sup e s k l vl va vb (Dp1 k)
+    Cal f g      -> wnf_dpn_cal e s k l f g (Dp1 k)
     val          -> wnf_unwind e s (Dup k l val (Dp1 k))
 
 -- WNF: Interactions
 -- -----------------
 
 -- x | x₀ | x₁
-wnf_var :: Env -> Stack -> Name -> (Env -> Name -> IO (Maybe Term)) -> (Name -> Term) -> IO Term
-wnf_var e s k takeFunc mkTerm = do
+wnf_sub :: Env -> Stack -> Name -> (Env -> Name -> IO (Maybe Term)) -> (Name -> Term) -> IO Term
+wnf_sub e s k takeFunc mkTerm = do
   mt <- takeFunc e k
   case mt of
     Just t  -> wnf e s t
@@ -525,38 +509,100 @@ wnf_dpn_sup e s k l vl va vb t
       regis_dup e b l vb
       wnf e s t
 
+-- ((f ~> g) a)
+wnf_app_cal :: Env -> Stack -> Term -> Term -> Term -> IO Term
+wnf_app_cal e s f g a = do
+  !g_wnf <- wnf e [] g
+  case g_wnf of
+    Lam fx ff -> wnf_app_cal_lam e s f fx ff a
+    Swi fz fs -> wnf_app_cal_swi e s f fz fs a
+    g_wnf     -> wnf_unwind e s (App (Cal f g_wnf) a)
+
+-- ((f ~> λx.g) a)
+wnf_app_cal_lam :: Env -> Stack -> Term -> Name -> Term -> Term -> IO Term
+wnf_app_cal_lam e s f x g a = do
+  inc_inters e
+  subst_var e x a
+  wnf_enter e s (Cal (App f (Var x)) g)
+
+-- ((f ~> Λ{0:z;1+:s}) a)
+wnf_app_cal_swi :: Env -> Stack -> Term -> Term -> Term -> Term -> IO Term
+wnf_app_cal_swi e s f z sc a = do
+  !a_wnf <- wnf e [] a
+  case a_wnf of
+    Zer       -> wnf_app_cal_swi_zer e s f z
+    Suc n     -> wnf_app_cal_swi_suc e s f sc n
+    Sup l b c -> wnf_app_cal_swi_sup e s f z sc l b c
+    a_wnf     -> wnf_unwind e s (App (Cal f (Swi z sc)) a_wnf)
+
+-- ((f ~> Λ{0:z;1+:s}) 0)
+wnf_app_cal_swi_zer :: Env -> Stack -> Term -> Term -> IO Term
+wnf_app_cal_swi_zer e s f z = do
+  inc_inters e
+  wnf_enter e s (Cal (App f Zer) z)
+
+-- ((f ~> Λ{0:z;1+:s}) 1+n)
+wnf_app_cal_swi_suc :: Env -> Stack -> Term -> Term -> Term -> IO Term
+wnf_app_cal_swi_suc e s f sc n = do
+  inc_inters e
+  p <- fresh e
+  wnf_enter e s (App (Cal (Lam p (App f (Suc (Var p)))) sc) n)
+
+-- ((f ~> Λ{0:z;1*:s}) &L{a,b})
+wnf_app_cal_swi_sup :: Env -> Stack -> Term -> Term -> Term -> Lab -> Term -> Term -> IO Term
+wnf_app_cal_swi_sup e s f z sc l a b = do
+  inc_inters e
+  f' <- fresh e
+  z' <- fresh e
+  s' <- fresh e
+  regis_dup e f' l f
+  regis_dup e z' l z
+  regis_dup e s' l sc
+  let swi0 = Swi (Dp0 z') (Dp0 s')
+  let swi1 = Swi (Dp1 z') (Dp1 s')
+  let app0 = App (Cal (Dp0 f') swi0) a
+  let app1 = App (Cal (Dp1 f') swi1) b
+  wnf_enter e s (Sup l app0 app1)
+
+-- ! &L X = f ~> g
+wnf_dpn_cal :: Env -> Stack -> Name -> Lab -> Term -> Term -> Term -> IO Term
+wnf_dpn_cal e s k l f g t = do
+  inc_inters e
+  f' <- fresh e
+  g' <- fresh e
+  regis_dup e f' l f
+  regis_dup e g' l g
+  subst_dp0 e k (Cal (Dp0 f') (Dp0 g'))
+  subst_dp1 e k (Cal (Dp1 f') (Dp1 g'))
+  wnf_enter e s t
+
 -- WNF: Alloc
 -- ----------
 
-wnf_alloc = undefined -- TODO
-
--- WNF: Dup Stack
--- --------------
-
--- wnf_dup_stack :: Env -> Lab -> Stack -> IO (Stack,Stack)
-
--- wnf_dup_stack e l [] = do
-  -- return ([], [])
-
--- wnf_dup_stack e l (FApp x : s) = do
-  -- xk <- fresh e
-  -- regis_dup e xk l x
-  -- (s0, s1) <- wnf_dup_stack e l s
-  -- return (FApp (Dp0 xk) : s0, FApp (Dp1 xk) : s1)
-
--- wnf_dup_stack e l (FDp0 ak al : s) = do
-  -- if l == al
-    -- then do
-      -- error "dup-stack-con-dup: label clash (L == A)"
-    -- else do
-      -- a0 <- fresh e
-      -- a1 <- fresh e
-      -- subst_dp1 e ak (Sup l (Dp1 a0) (Dp1 a1))
-      -- (s0, s1) <- wnf_dup_stack e l s
-      -- return (FDp0 a0 al : s0, FDp0 a1 al : s1)
-
--- wnf_dup_stack e l _ = do
-  -- undefined -- TODO
+-- Clones a term, replacing all bound names with fresh ones.
+wnf_alloc :: Env -> Term -> IO Term
+wnf_alloc e term = go IM.empty term where
+  go :: IM.IntMap Name -> Term -> IO Term
+  go m (Var k)       = return $ Var (IM.findWithDefault k k m)
+  go m (Dp0 k)       = return $ Dp0 (IM.findWithDefault k k m)
+  go m (Dp1 k)       = return $ Dp1 (IM.findWithDefault k k m)
+  go m Era           = return Era
+  go m (Sup l a b)   = Sup l <$> go m a <*> go m b
+  go m (App f x)     = App <$> go m f <*> go m x
+  go m Zer           = return Zer
+  go m (Suc n)       = Suc <$> go m n
+  go m (Swi z s)     = Swi <$> go m z <*> go m s
+  go m (Ref k)       = return $ Ref k
+  go m (Cal f g)     = Cal <$> go m f <*> go m g
+  go m (Dup k l v t) = do
+    k' <- fresh e
+    v' <- go m v
+    t' <- go (IM.insert k k' m) t
+    return $ Dup k' l v' t'
+  go m (Lam k f) = do
+    k' <- fresh e
+    f' <- go (IM.insert k k' m) f
+    return $ Lam k' f'
 
 -- Normalization
 -- =============
@@ -590,10 +636,15 @@ nf e d x = do { !x0 <- wnf e [] x ; go e d x0 } where
     subst_dp1 e k (Dp1 d)
     !t0 <- nf e (d + 1) t
     return $ Dup d l v0 t0
-  go e d Zer = return Zer
+  go e d Zer = do
+    return Zer
   go e d (Suc n) = do
     !n0 <- nf e d n
     return $ Suc n0
+  go e d (Swi z s) = do
+    !z0 <- nf e d z
+    !s0 <- nf e d s
+    return $ Swi z0 s0
   go e d (Ref k) = do
     return $ Ref k
   go e d (Cal f g) = do
@@ -617,66 +668,17 @@ f n = "λf. " ++ dups ++ final where
 
 main :: IO ()
 main = do
- -- Benchmark configuration: 2^N
- let n = 20
- -- The term applies (2^N) to the 'False' church numeral (λT.λF.F), resulting in 'True' (λT.λF.T).
- let term_str = "((" ++ f n ++ " λX.((X λT0.λF0.F0) λT1.λF1.T1)) λT2.λF2.T2)"
-
- -- Parse directly to Term.
- let term = read_term term_str
-
- -- Setup environment (fresh IDs start automatically at 0 and get '$' prepended).
- env <- new_env (Book M.empty)
-
- -- Execution
- start <- getCPUTime
+ let n    = 18
+ let code = "((" ++ f n ++ " λX.((X λT0.λF0.F0) λT1.λF1.T1)) λT2.λF2.T2)"
+ let term = read_term code
+ !env <- new_env (Book M.empty)
+ !ini <- getCPUTime
  !res <- nf env 0 term -- Start normalization with depth 0
- end <- getCPUTime
-
- -- Output
- interactions <- readIORef (inters env)
- let diff = fromIntegral (end - start) / (10^12)
- let rate = fromIntegral interactions / diff
-
- -- Expected output: λa.λb.a (Canonical representation of Church True)
+ !end <- getCPUTime
+ !itr <- readIORef (inters env)
+ let diff = fromIntegral (end - ini) / (10^12)
+ let rate = fromIntegral itr / diff
  putStrLn (show res)
- print interactions
+ print itr
  printf "Time: %.3f seconds\n" (diff :: Double)
  printf "Rate: %.2f M interactions/s\n" (rate / 1000000 :: Double)
-
-
-
-
-
-
-
--- -- -- main :: IO ()
--- -- -- main = do
-  -- -- -- -- Demo book following the spec:
-  -- -- -- -- - Patt CLam uses Λ (capital lambda)
-  -- -- -- -- - Term Lam uses λ (lowercase lambda)
-  -- -- -- let book_str = unlines
-        -- -- -- [ "@id    = Λx.x"
-        -- -- -- , "@const = Λx.Λy.x"
-        -- -- -- , "@true  = Λt.Λf.t"
-        -- -- -- , "@false = Λt.Λf.f"
-        -- -- -- , "@not   = Λ{#0:#1;#1:#0}"
-        -- -- -- , "@fst   = Λp.(p λa.λb.a)"
-        -- -- -- , "@snd   = Λp.(p λa.λb.b)"
-        -- -- -- ]
-
-  -- -- -- -- Parse the book
-  -- -- -- let book = read_book book_str
-
-  -- -- -- -- Print the parsed book
-  -- -- -- putStrLn "Parsed Book:"
-  -- -- -- putStrLn "============"
-  -- -- -- print book
-
-  -- -- -- -- Test: apply @not to #0
-  -- -- -- putStrLn "\nTest: (@not #0)"
-  -- -- -- putStrLn "==============="
-  -- -- -- let test_term = App (Ref (name_to_int "not")) Zer
-  -- -- -- env <- new_env book
-  -- -- -- result <- nf env 0 test_term
-  -- -- -- putStrLn $ "Result: " ++ show result
