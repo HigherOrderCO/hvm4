@@ -425,17 +425,17 @@ wnf_enter e s (Ref k) = do
     Just f  -> do
       inc_inters e
       g <- wnf_alloc e f
-      putStrLn $ ">> alloc: " ++ show g
-      wnf_enter e s (Cal (Nam (int_to_name k)) g)
+      putStrLn $ ">> alloc              : " ++ show g
+      wnf_enter e s (Cal (Nam ("@" ++ int_to_name k)) g)
     Nothing -> do
       error $ "UndefinedReference: " ++ int_to_name k
 
 wnf_enter e s (Cal f g) = do
-  putStrLn $ "wnf_enter_cal: " ++ show f ++ "~>" ++ show g
+  putStrLn $ ">> wnf_enter_cal      : " ++ show f ++ "~>" ++ show g
   wnf_unwind e s (Cal f g)
 
 wnf_enter e s f = do
-  putStrLn $ "wnf_enter: " ++ show f
+  putStrLn $ ">> wnf_enter          : " ++ show f
   wnf_unwind e s f
 
 -- WNF: Unwind
@@ -472,7 +472,8 @@ wnf_sub e s k takeFunc mkTerm = do
   mt <- takeFunc e k
   case mt of
     Just t  -> wnf e s t
-    Nothing -> wnf_unwind e s (mkTerm k)
+    -- Nothing -> wnf_unwind e s (mkTerm k)
+    Nothing -> wnf_unwind e s (Nam (int_to_name k))
 
 -- (λx.f a)
 wnf_app_lam :: Env -> Stack -> Name -> Term -> Term -> IO Term
@@ -523,7 +524,7 @@ wnf_dpn_sup e s k l vl va vb t
 -- ((f ~> g) a)
 wnf_app_cal :: Env -> Stack -> Term -> Term -> Term -> IO Term
 wnf_app_cal e s f g a = do
-  putStrLn $ "wnf_app_cal: " ++ show f ++ "~>" ++ show g ++ " " ++ show a
+  putStrLn $ ">> wnf_app_cal        : " ++ show f ++ "~>" ++ show g ++ " " ++ show a
   !g_wnf <- wnf e [] g
   case g_wnf of
     Lam fx ff -> wnf_app_cal_lam e s f fx ff a
@@ -533,31 +534,35 @@ wnf_app_cal e s f g a = do
 -- ((f ~> λx.g) a)
 wnf_app_cal_lam :: Env -> Stack -> Term -> Name -> Term -> Term -> IO Term
 wnf_app_cal_lam e s f x g a = do
-  putStrLn $ "wnf_app_cal_lam: " ++ show f ++ "~>λ" ++ int_to_name x ++ "." ++ show g ++ " " ++ show a
+  putStrLn $ ">> wnf_app_cal_lam    : " ++ show f ++ "~>λ" ++ int_to_name x ++ "." ++ show g ++ " " ++ show a
   inc_inters e
   subst_var e x a
-  putStrLn $ ".. " ++ show (Cal (App f (Var x)) g)
   wnf_enter e s (Cal (App f (Var x)) g)
 
 -- ((f ~> Λ{0:z;1+:s}) a)
 wnf_app_cal_swi :: Env -> Stack -> Term -> Term -> Term -> Term -> IO Term
 wnf_app_cal_swi e s f z sc a = do
   !a_wnf <- wnf e [] a
+  putStrLn $ ">> wnf_app_cal_swi    : " ++ show f ++ "~>Λ{0:" ++ show z ++ ";1+:" ++ show sc ++ "} " ++ show a ++ "→" ++ show a_wnf
   case a_wnf of
     Zer       -> wnf_app_cal_swi_zer e s f z
     Suc n     -> wnf_app_cal_swi_suc e s f sc n
     Sup l b c -> wnf_app_cal_swi_sup e s f z sc l b c
+    Nam k     -> wnf_unwind e s (App f (Nam k))
     a_wnf     -> wnf_unwind e s (App (Cal f (Swi z sc)) a_wnf)
 
 -- ((f ~> Λ{0:z;1+:s}) 0)
 wnf_app_cal_swi_zer :: Env -> Stack -> Term -> Term -> IO Term
 wnf_app_cal_swi_zer e s f z = do
+  putStrLn $ ">> wnf_app_cal_swi_zer: " ++ show f ++ "~>Λ{0:" ++ show z ++ ";1+:...} 0"
   inc_inters e
   wnf_enter e s (Cal (App f Zer) z)
 
 -- ((f ~> Λ{0:z;1+:s}) 1+n)
 wnf_app_cal_swi_suc :: Env -> Stack -> Term -> Term -> Term -> IO Term
 wnf_app_cal_swi_suc e s f sc n = do
+  -- TODO: debug print ↓
+  putStrLn $ ">> wnf_app_cal_swi_suc: " ++ show f ++ "~>Λ{0:...;1+:" ++ show sc ++ "} 1+" ++ show n
   inc_inters e
   p <- fresh e
   wnf_enter e s (App (Cal (Lam p (App f (Suc (Var p)))) sc) n)
@@ -565,6 +570,7 @@ wnf_app_cal_swi_suc e s f sc n = do
 -- ((f ~> Λ{0:z;1+:s}) &L{a,b})
 wnf_app_cal_swi_sup :: Env -> Stack -> Term -> Term -> Term -> Lab -> Term -> Term -> IO Term
 wnf_app_cal_swi_sup e s f z sc l a b = do
+  putStrLn $ ">> wnf_app_cal_swi_sup: " ++ show f ++ "~>Λ{0:" ++ show z ++ ";1+:" ++ show sc ++ "} &" ++ int_to_name l ++ "{" ++ show a ++ "," ++ show b ++ "}"
   inc_inters e
   f' <- fresh e
   z' <- fresh e
@@ -581,6 +587,8 @@ wnf_app_cal_swi_sup e s f z sc l a b = do
 -- ! &L X = f ~> g
 wnf_dpn_cal :: Env -> Stack -> Name -> Lab -> Term -> Term -> Term -> IO Term
 wnf_dpn_cal e s k l f g t = do
+  -- TODO: debug print ↓
+  putStrLn $ ">> wnf_dpn_cal: ! &" ++ int_to_name l ++ " " ++ int_to_name k ++ " = " ++ show f ++ "~>" ++ show g
   inc_inters e
   f' <- fresh e
   g' <- fresh e
@@ -698,21 +706,23 @@ run book_src term_src = do
   !itr <- readIORef (env_inters env)
   let diff = fromIntegral (end - ini) / (10^12)
   let rate = fromIntegral itr / diff
-  putStrLn (show res)
-  print itr
-  printf "Time: %.3f seconds\n" (diff :: Double)
-  printf "Rate: %.2f M interactions/s\n" (rate / 1000000 :: Double)
+  putStrLn $ show res
+  putStrLn $ "- Itrs: " ++ show itr ++ " interactions"
+  printf "- Time: %.3f seconds\n" (diff :: Double)
+  printf "- Perf: %.2f M interactions/s\n" (rate / 1000000 :: Double)
 
 book :: String
 book = """
-  @true  = λt. λf. t
-  @false = λt. λf. f
-  @not   = λb. λt. λf. (b f t)
+  @c_true  = λt. λf. t
+  @c_false = λt. λf. f
+  @c_not   = λb. λt. λf. (b f t)
+
+  @foo = λ{0:0;1+:λp.1+1+(@foo p)}
 """
 
 main :: IO ()
 -- main = run book "((" ++ f 18 ++ " λX.((X λT0.λF0.F0) λT1.λF1.T1)) λT2.λF2.T2)"
-main = run book "(@not @true)"
+main = run book "λx.(@foo 1+1+x)"
 
 
 
