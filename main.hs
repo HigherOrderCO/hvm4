@@ -189,6 +189,9 @@ instance Show Book where
 alphabet :: String
 alphabet = "_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789$"
 
+alphabet_first :: String
+alphabet_first = filter (`notElem` "_0123456789") alphabet
+
 name_to_int :: String -> Int
 name_to_int = foldl' (\acc c -> (acc `shiftL` 6) + idx c) 0
   where idx c = maybe (error "bad name char") id (elemIndex c alphabet)
@@ -206,22 +209,26 @@ lexeme :: ReadP a -> ReadP a
 lexeme p = skipSpaces *> p
 
 parse_nam :: ReadP String
-parse_nam = lexeme $ munch1 (`elem` alphabet)
+parse_nam = lexeme $ do
+  head <- satisfy (`elem` alphabet_first)
+  tail <- munch (`elem` alphabet)
+  return (head : tail)
 
 parse_term :: ReadP Term
 parse_term = parse_term_base
 
 parse_term_base :: ReadP Term
-parse_term_base = lexeme $
-      parse_lam_or_swi
-  <++ parse_dup
-  <++ parse_app
-  <++ parse_sup
-  <++ parse_era
-  <++ parse_zer
-  <++ parse_suc
-  <++ parse_ref
-  <++ parse_var
+parse_term_base = lexeme $ choice
+  [ parse_lam_or_swi
+  , parse_dup
+  , parse_app
+  , parse_sup
+  , parse_era
+  , parse_zer
+  , parse_suc
+  , parse_ref
+  , parse_var
+  ]
 
 parse_app :: ReadP Term
 parse_app = between (lexeme (char '(')) (lexeme (char ')')) $ do
@@ -379,8 +386,8 @@ take_sub e s k = taker (env_subst e) (k `shiftL` 2 + fromEnum s)
 subst :: Env -> SubSlot -> Name -> Term -> IO ()
 subst e s k v = modifyIORef' (env_subst e) (IM.insert (k `shiftL` 2 + fromEnum s) v)
 
-regis_dup :: Env -> Name -> Lab -> Term -> IO ()
-regis_dup e k l v = modifyIORef' (env_dup_map e) (IM.insert k (l, v))
+duply :: Env -> Name -> Lab -> Term -> IO ()
+duply e k l v = modifyIORef' (env_dup_map e) (IM.insert k (l, v))
 
 -- WNF: Weak Normal Form
 -- =====================
@@ -410,7 +417,7 @@ wnf_enter e s (Var k) = do
 
 wnf_enter e s (Dup k l v t) = do
   when debug $ putStrLn $ ">> wnf_enter_dup        : " ++ show (Dup k l v t)
-  regis_dup e k l v
+  duply e k l v
   wnf_enter e s t
 
 wnf_enter e s (Dp0 k) = do
@@ -512,7 +519,7 @@ wnf_app_sup e s fL fa fb v = do
   when debug $ putStrLn $ "## wnf_app_sup          : " ++ show (App (Sup fL fa fb) v)
   inc_inters e
   x <- fresh e
-  regis_dup e x fL v
+  duply e x fL v
   wnf e s (Sup fL (App fa (Dp0 x)) (App fb (Dp1 x)))
 
 -- ! X &L = &{}
@@ -535,7 +542,7 @@ wnf_dpn_lam e s k l vk vf t = do
   subst e SubDp0 k (Lam x0 (Dp0 g))
   subst e SubDp1 k (Lam x1 (Dp1 g))
   subst e SubVar vk (Sup l (Var x0) (Var x1))
-  regis_dup e g l vf
+  duply e g l vf
   wnf e s t
 
 -- ! X &L = &R{a,b}
@@ -554,8 +561,8 @@ wnf_dpn_sup e s k l vl va vb t
       b <- fresh e
       subst e SubDp0 k (Sup vl (Dp0 a) (Dp0 b))
       subst e SubDp1 k (Sup vl (Dp1 a) (Dp1 b))
-      regis_dup e a l va
-      regis_dup e b l vb
+      duply e a l va
+      duply e b l vb
       wnf e s t
 
 -- ! X &L = 0
@@ -573,7 +580,7 @@ wnf_dpn_suc e s k l p t = do
   when debug $ putStrLn $ "## wnf_dpn_suc          : " ++ show (Dup k l (Suc p) t)
   inc_inters e
   n <- fresh e
-  regis_dup e n l p
+  duply e n l p
   subst e SubDp0 k (Suc (Dp0 n))
   subst e SubDp1 k (Suc (Dp1 n))
   wnf e s t
@@ -585,8 +592,8 @@ wnf_dpn_swi e s k l vz vs t = do
   inc_inters e
   z <- fresh e
   sc <- fresh e
-  regis_dup e z l vz
-  regis_dup e sc l vs
+  duply e z l vz
+  duply e sc l vs
   subst e SubDp0 k (Swi (Dp0 z) (Dp0 sc))
   subst e SubDp1 k (Swi (Dp1 z) (Dp1 sc))
   wnf e s t
@@ -626,8 +633,8 @@ wnf_app_cal_sup e s f l x y a = do
   inc_inters e
   f' <- fresh e
   a' <- fresh e
-  regis_dup e f' l f
-  regis_dup e a' l a
+  duply e f' l f
+  duply e a' l a
   let app0 = App (Cal (Dp0 f') x) (Dp0 a')
   let app1 = App (Cal (Dp1 f') y) (Dp1 a')
   wnf_enter e s (Sup l app0 app1)
@@ -667,9 +674,9 @@ wnf_app_cal_swi_sup e s f z sc l a b = do
   f' <- fresh e
   z' <- fresh e
   s' <- fresh e
-  regis_dup e f' l f
-  regis_dup e z' l z
-  regis_dup e s' l sc
+  duply e f' l f
+  duply e z' l z
+  duply e s' l sc
   let swi0 = Swi (Dp0 z') (Dp0 s')
   let swi1 = Swi (Dp1 z') (Dp1 s')
   let app0 = App (Cal (Dp0 f') swi0) a
@@ -683,8 +690,8 @@ wnf_dpn_cal e s k l f g t = do
   inc_inters e
   f' <- fresh e
   g' <- fresh e
-  regis_dup e f' l f
-  regis_dup e g' l g
+  duply e f' l f
+  duply e g' l g
   subst e SubDp0 k (Cal (Dp0 f') (Dp0 g'))
   subst e SubDp1 k (Cal (Dp1 f') (Dp1 g'))
   wnf_enter e s t
