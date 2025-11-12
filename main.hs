@@ -121,7 +121,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# OPTIONS_GHC -O2 #-}
 
-import Control.Monad (when)
+import Control.Monad (when, forM_)
 import Data.Bits (shiftL)
 import Data.IORef
 import Data.List (foldl', elemIndex)
@@ -195,9 +195,9 @@ name_to_int = foldl' (\acc c -> (acc `shiftL` 6) + idx c) 0
 
 int_to_name :: Int -> String
 int_to_name 0 = "_"
-int_to_name n = reverse (go n) where
-  go 0 = ""
-  go m = let (q,r) = m `divMod` 64 in alphabet !! r : go q
+int_to_name n = reverse (go n)
+  where go 0 = ""
+        go m = let (q,r) = m `divMod` 64 in alphabet !! r : go q
 
 -- Parsing
 -- =======
@@ -752,21 +752,16 @@ nf e d x = do { !x0 <- wnf e [] x ; go e d x0 } where
 
 -- Generates the church-encoded exponentiation benchmark term.
 f :: Int -> String
-f n = "λf. " ++ dups ++ final where
+f n = "λf." ++ dups ++ final where
   dups  = concat [dup i | i <- [0..n-1]]
-  dup 0 = "!F00 &A = f;\n    "
-  dup i = "!F" ++ pad i ++ " &A = λx" ++ pad (i-1) ++ ".(F" ++ pad (i-1) ++ "₀ (F" ++ pad (i-1) ++ "₁ x" ++ pad (i-1) ++ "));\n    "
+  dup 0 = "!F00&A=f;"
+  dup i = "!F" ++ pad i ++ "&A=λx" ++ pad (i-1) ++ ".(F" ++ pad (i-1) ++ "₀ (F" ++ pad (i-1) ++ "₁ x" ++ pad (i-1) ++ "));"
   final = "λx" ++ pad (n-1) ++ ".(F" ++ pad (n-1) ++ "₀ (F" ++ pad (n-1) ++ "₁ x" ++ pad (n-1) ++ "))"
   pad x = if x < 10 then "0" ++ show x else show x
 
 -- Main
 -- ====
 
--- TODO: the test function receives:
--- - the source of a Book
--- - the source of a Term
--- And parses the book, the term, then runs
--- Exactly like the 'main' below
 run :: String -> String -> IO () 
 run book_src term_src = do
   let book = read_book book_src
@@ -786,41 +781,45 @@ run book_src term_src = do
 
 book :: String
 book = """
-  @c_true  = λt. λf. t
-  @c_false = λt. λf. f
-  @c_not   = λb. λt. λf. (b f t)
-
   @id  = λa.a
   @not = λ{0:1+0;1+:λp.0}
   @dbl = λ{0:0;1+:λp.1+1+(@dbl p)}
   @and = λ{0:λ{0:0;1+:λp.0};1+:λp.λ{0:0;1+:λp.1+0}}
   @add = λ{0:λb.b;1+:λa.λb.1+(@add a b)}
   @sum = λ{0:0;1+:λp.!P&S=p;1+(@add P₀ (@sum P₁))}
-
-  @foo = &L{
-    λx. x
-    λ{
-      0: 0
-      1+: λp. p
-    }
-  }
+  @foo = &L{λx.x,λ{0:0;1+:λp.p}}
 """
 
+tests :: [(String,String)]
+tests =
+  [ ("(@not 0)", "1+0")
+  , ("(@not 1+0)", "0")
+  , ("!F&L=@id;!G&L=F₀;λx.(G₁ x)", "λa.a")
+  , ("(@and 0 0)", "0")
+  , ("(@and &L{0,1+0} 1+0)", "&L{0,1+0}")
+  , ("(@and &L{1+0,0} 1+0)", "&L{1+0,0}")
+  , ("(@and 1+0 &L{0,1+0})", "&L{0,1+0}")
+  , ("(@and 1+0 &L{1+0,0})", "&L{1+0,0}")
+  , ("λx.(@and 0 x)", "λa.((@and 0) a)")
+  , ("λx.(@and x 0)", "λa.((@and a) 0)")
+  , ("(@sum 1+1+1+0)", "1+1+1+1+1+1+0")
+  , ("λx.(@sum 1+1+1+x)", "λa.1+1+1+((@add a) 1+1+((@add a) 1+((@add a) (@sum a))))")
+  , ("(@foo 0)", "&L{0,0}")
+  , ("(@foo 1+1+1+0)", "&L{1+1+1+0,1+1+0}")
+  , ("λx.(@dbl 1+1+x)", "λa.1+1+1+1+(@dbl a)")
+  , ("(("++f 2++" λX.((X λT0.λF0.F0) λT1.λF1.T1)) λT2.λF2.T2)", "λa.λb.a")
+  ]
+
+test :: IO ()
+test = forM_ tests $ \ (src, exp) -> do
+  env <- new_env (read_book book)
+  det <- show <$> nf env 1 (read_term src)
+  if det == exp then do
+    putStrLn $ "[PASS] " ++ src ++ " → " ++ det
+  else do
+    putStrLn $ "[FAIL] " ++ src
+    putStrLn $ "  - expected: " ++ exp
+    putStrLn $ "  - detected: " ++ det
 
 main :: IO ()
--- main = run book $ "((" ++ f 18 ++ " λX.((X λT0.λF0.F0) λT1.λF1.T1)) λT2.λF2.T2)"
--- main = run book "λx.(@dbl 1+1+x)" -- λa.1+1+1+1+(^@dbl ^a)
--- main = run book "(@not 0)" -- 1+0
--- main = run book "(@not 1+0)" -- 0
--- main = run book "! F & L = @id; !G & L = F₀; λx.(G₁ x)" -- λa.^a
--- main = run book "(@and 0 0)" -- 0
--- main = run book "(@and &L{0,1+0} 1+0)" -- &L{0,1+0}
--- main = run book "(@and &L{1+0,0} 1+0)" -- &L{1+0,0}
--- main = run book "(@and 1+0 &L{0,1+0})" -- &L{0,1+0}
--- main = run book "(@and 1+0 &L{1+0,0})" -- &L{1+0,0}
--- main = run book "λx.(@and 0 x)" -- λa.((^@and 0) ^a)
--- main = run book "λx.(@and x 0)" -- λa.((^@and ^a) 0)
--- main = run book "(@sum 1+1+1+0)" -- 1+1+1+1+1+1+0
--- main = run book "λx.(@sum 1+1+1+x)"
--- main = run book "(@foo 0)"
-main = run book "(@foo 1+1+1+0)"
+main = test
