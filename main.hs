@@ -402,8 +402,8 @@ take_sub e s k = taker (env_subst e) (k `shiftL` 2 + fromEnum s)
 subst :: Env -> SubSlot -> Name -> Term -> IO ()
 subst e s k v = modifyIORef' (env_subst e) (IM.insert (k `shiftL` 2 + fromEnum s) v)
 
-duply :: Env -> Name -> Lab -> Term -> IO ()
-duply e k l v = modifyIORef' (env_dup_map e) (IM.insert k (l, v))
+clone :: Env -> Name -> Lab -> Term -> IO ()
+clone e k l v = modifyIORef' (env_dup_map e) (IM.insert k (l, v))
 
 -- WNF: Weak Normal Form
 -- =====================
@@ -433,7 +433,7 @@ wnf_enter e s (Var k) = do
 
 wnf_enter e s (Dup k l v t) = do
   when debug $ putStrLn $ ">> wnf_enter_dup        : " ++ show (Dup k l v t)
-  duply e k l v
+  clone e k l v
   wnf_enter e s t
 
 wnf_enter e s (Dp0 k) = do
@@ -535,7 +535,7 @@ wnf_app_sup e s fL fa fb v = do
   when debug $ putStrLn $ "## wnf_app_sup          : " ++ show (App (Sup fL fa fb) v)
   inc_inters e
   x <- fresh e
-  duply e x fL v
+  clone e x fL v
   wnf e s (Sup fL (App fa (Dp0 x)) (App fb (Dp1 x)))
 
 -- ! X &L = &{}
@@ -558,7 +558,7 @@ wnf_dpn_lam e s k l vk vf t = do
   subst e SubDp0 k (Lam x0 (Dp0 g))
   subst e SubDp1 k (Lam x1 (Dp1 g))
   subst e SubVar vk (Sup l (Var x0) (Var x1))
-  duply e g l vf
+  clone e g l vf
   wnf e s t
 
 -- ! X &L = &R{a,b}
@@ -577,8 +577,8 @@ wnf_dpn_sup e s k l vl va vb t
       b <- fresh e
       subst e SubDp0 k (Sup vl (Dp0 a) (Dp0 b))
       subst e SubDp1 k (Sup vl (Dp1 a) (Dp1 b))
-      duply e a l va
-      duply e b l vb
+      clone e a l va
+      clone e b l vb
       wnf e s t
 
 -- ! X &L = 0
@@ -596,7 +596,7 @@ wnf_dpn_suc e s k l p t = do
   when debug $ putStrLn $ "## wnf_dpn_suc          : " ++ show (Dup k l (Suc p) t)
   inc_inters e
   n <- fresh e
-  duply e n l p
+  clone e n l p
   subst e SubDp0 k (Suc (Dp0 n))
   subst e SubDp1 k (Suc (Dp1 n))
   wnf e s t
@@ -608,8 +608,8 @@ wnf_dpn_swi e s k l vz vs t = do
   inc_inters e
   z <- fresh e
   sc <- fresh e
-  duply e z l vz
-  duply e sc l vs
+  clone e z l vz
+  clone e sc l vs
   subst e SubDp0 k (Swi (Dp0 z) (Dp0 sc))
   subst e SubDp1 k (Swi (Dp1 z) (Dp1 sc))
   wnf e s t
@@ -649,8 +649,8 @@ wnf_app_cal_sup e s f l x y a = do
   inc_inters e
   f' <- fresh e
   a' <- fresh e
-  duply e f' l f
-  duply e a' l a
+  clone e f' l f
+  clone e a' l a
   let app0 = App (Cal (Dp0 f') x) (Dp0 a')
   let app1 = App (Cal (Dp1 f') y) (Dp1 a')
   wnf_enter e s (Sup l app0 app1)
@@ -690,9 +690,9 @@ wnf_app_cal_swi_sup e s f z sc l a b = do
   f' <- fresh e
   z' <- fresh e
   s' <- fresh e
-  duply e f' l f
-  duply e z' l z
-  duply e s' l sc
+  clone e f' l f
+  clone e z' l z
+  clone e s' l sc
   let swi0 = Swi (Dp0 z') (Dp0 s')
   let swi1 = Swi (Dp1 z') (Dp1 s')
   let app0 = App (Cal (Dp0 f') swi0) a
@@ -706,8 +706,8 @@ wnf_dpn_cal e s k l f g t = do
   inc_inters e
   f' <- fresh e
   g' <- fresh e
-  duply e f' l f
-  duply e g' l g
+  clone e f' l f
+  clone e g' l g
   subst e SubDp0 k (Cal (Dp0 f') (Dp0 g'))
   subst e SubDp1 k (Cal (Dp1 f') (Dp1 g'))
   wnf_enter e s t
