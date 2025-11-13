@@ -172,7 +172,7 @@ instance Show Term where
   show (Sup l a b)   = "&" ++ int_to_name l ++ "{" ++ show a ++ "," ++ show b ++ "}"
   show (Dup k l v t) = "!" ++ int_to_name k ++ "&" ++ int_to_name l ++ "=" ++ show v ++ ";" ++ show t
   show (Lam k f)     = "λ" ++ int_to_name k ++ "." ++ show f
-  show (App f x)     = "(" ++ show f ++ " " ++ show x ++ ")"
+  show (App f x)     = show_app f [x]
   show Zer           = "0"
   show (Suc p)       = show_add 1 p
   show (Swi z s)     = "λ{0:" ++ show z ++ ";1+:" ++ show s ++ "}"
@@ -183,6 +183,10 @@ show_add :: Int -> Term -> String
 show_add n (Suc p) = show_add (n + 1) p
 show_add n Zer     = show n
 show_add n term    = show n ++ "+" ++ show term
+
+show_app :: Term -> [Term] -> String
+show_app (App f x) args = show_app f (x : args)
+show_app f         args = "(" ++ unwords (map show (f : args)) ++ ")"
 
 instance Show Book where
   show (Book m) = unlines [ "@" ++ int_to_name k ++ " = " ++ show ct | (k, ct) <- M.toList m ]
@@ -824,14 +828,14 @@ tests =
   , ("(@and &L{1+0,0} 1+0)", "&L{1,0}")
   , ("(@and 1+0 &L{0,1+0})", "&L{0,1}")
   , ("(@and 1+0 &L{1+0,0})", "&L{1,0}")
-  , ("λx.(@and 0 x)", "λa.((@and 0) a)")
-  , ("λx.(@and x 0)", "λa.((@and a) 0)")
+  , ("λx.(@and 0 x)", "λa.(@and 0 a)")
+  , ("λx.(@and x 0)", "λa.(@and a 0)")
   , ("(@sum 1+1+1+0)", "6")
-  , ("λx.(@sum 1+1+1+x)", "λa.3+((@add a) 2+((@add a) 1+((@add a) (@sum a))))")
+  , ("λx.(@sum 1+1+1+x)", "λa.3+(@add a 2+(@add a 1+(@add a (@sum a))))")
   , ("(@foo 0)", "&L{0,0}")
   , ("(@foo 1+1+1+0)", "&L{3,2}")
   , ("λx.(@dbl 1+1+x)", "λa.4+(@dbl a)")
-  , ("(("++f 2++" λX.((X λT0.λF0.F0) λT1.λF1.T1)) λT2.λF2.T2)", "λa.λb.a")
+  , ("("++f 2++" λX.(X λT0.λF0.F0 λT1.λF1.T1) λT2.λF2.T2)", "λa.λb.a")
   ]
 
 test :: IO ()
