@@ -157,6 +157,12 @@ data Term
   | Cal !Term !Term
   deriving (Eq)
 
+data Kind
+  = VAR
+  | DP0
+  | DP1
+  deriving (Enum)
+
 data Book = Book (M.Map Name Term)
 
 data Env = Env
@@ -370,12 +376,6 @@ read_book s = case readP_to_S parse_book s of
 -- Environment
 -- ===========
 
-data SubSlot
-  = SubVar
-  | SubDp0
-  | SubDp1
-  deriving (Enum)
-
 new_env :: Book -> IO Env
 new_env bk = do
   itr <- newIORef 0
@@ -408,11 +408,11 @@ taker ref k = do
 take_dup :: Env -> Name -> IO (Maybe (Lab, Term))
 take_dup e k = taker (env_dup_map e) k
 
-take_sub :: Env -> SubSlot -> Name -> IO (Maybe Term)
-take_sub e s k = taker (env_sub_map e) (k `shiftL` 2 + fromEnum s)
+take_sub :: Kind -> Env -> Name -> IO (Maybe Term)
+take_sub ki e k = taker (env_sub_map e) (k `shiftL` 2 + fromEnum ki)
 
-subst :: Env -> SubSlot -> Name -> Term -> IO ()
-subst e s k v = modifyIORef' (env_sub_map e) (IM.insert (k `shiftL` 2 + fromEnum s) v)
+subst :: Kind -> Env -> Name -> Term -> IO ()
+subst s e k v = modifyIORef' (env_sub_map e) (IM.insert (k `shiftL` 2 + fromEnum s) v)
 
 duply :: Env -> Name -> Lab -> Term -> IO ()
 duply e k l v = modifyIORef' (env_dup_map e) (IM.insert k (l, v))
@@ -454,7 +454,7 @@ wnf_enter e s (App f x) = do
 
 wnf_enter e s (Var k) = do
   when debug $ putStrLn $ ">> wnf_enter_var        : " ++ show (Var k)
-  wnf_sub e s SubVar k
+  wnf_sub VAR e s k
 
 wnf_enter e s (Dup k l v t) = do
   when debug $ putStrLn $ ">> wnf_enter_dup        : " ++ show (Dup k l v t)
@@ -466,14 +466,14 @@ wnf_enter e s (Dp0 k) = do
   mlv <- take_dup e k
   case mlv of
     Just (l, v) -> wnf_enter e (FDp0 k l : s) v
-    Nothing     -> wnf_sub e s SubDp0 k
+    Nothing     -> wnf_sub DP0 e s k
 
 wnf_enter e s (Dp1 k) = do
   when debug $ putStrLn $ ">> wnf_enter_dp1        : " ++ show (Dp1 k)
   mlv <- take_dup e k
   case mlv of
     Just (l, v) -> wnf_enter e (FDp1 k l : s) v
-    Nothing     -> wnf_sub e s SubDp1 k
+    Nothing     -> wnf_sub DP1 e s k
 
 wnf_enter e s (Ref k) = do
   when debug $ putStrLn $ ">> wnf_enter_ref        : " ++ show (Ref k)
@@ -520,7 +520,6 @@ wnf_unwind e (x:s) v = do
       Zer          -> wnf_dpn_zer e s k l          (Dp0 k)
       Swi vz vs    -> wnf_dpn_swi e s k l vz vs    (Dp0 k)
       val          -> wnf_unwind  e s (Dup k l val (Dp0 k))
-      -- val          -> wnf_unwind  e s (Dp0 k)
     FDp1 k l -> case v of
       Era          -> wnf_dpn_era e s k l          (Dp1 k)
       Dry vf vx    -> wnf_dpn_dry e s k l vf vx    (Dp1 k)
@@ -532,28 +531,29 @@ wnf_unwind e (x:s) v = do
       Swi vz vs    -> wnf_dpn_swi e s k l vz vs    (Dp1 k)
       Nam n        -> wnf_dpn_nam e s k l n        (Dp1 k)
       val          -> wnf_unwind  e s (Dup k l val (Dp1 k))
-      -- val          -> wnf_unwind  e s (Dp1 k)
 
 -- WNF: Interactions
 -- -----------------
 
 -- x | x₀ | x₁
-wnf_sub :: Env -> Stack -> SubSlot -> Name -> IO Term
-wnf_sub e s sl k = do
+wnf_sub :: Kind -> Env -> Stack -> Name -> IO Term
+wnf_sub ki e s k = do
   when debug $ putStrLn $ "## wnf_sub              : " ++ int_to_name k
-  mt <- take_sub e sl k
+  mt <- take_sub ki e k
   case mt of
     Just t  -> wnf e s t
-    -- Nothing -> wnf_unwind e s (Nam (int_to_name k))
-    Nothing -> wnf_unwind e s $ (case sl of { SubVar -> Var ; SubDp0 -> Dp0 ; SubDp1 -> Dp1 }) k
+    Nothing -> wnf_unwind e s $ case ki of
+      VAR -> Var k
+      DP0 -> Dp0 k
+      DP1 -> Dp1 k
 
--- TODO: implement wnf_app_nam. its effect is merely to turn the app into a dry
+-- .x
 wnf_app_nam :: Env -> Stack -> String -> Term -> IO Term
 wnf_app_nam e s fk v = do
   when debug $ putStrLn $ "## wnf_app_nam          : " ++ show (App (Nam fk) v)
   wnf e s (Dry (Nam fk) v)
 
--- TODO: implement wnf_app_dry. its effect is, too, to turn the app into a dry
+-- .(f x)
 wnf_app_dry :: Env -> Stack -> Term -> Term -> Term -> IO Term
 wnf_app_dry e s ff fx v = do
   when debug $ putStrLn $ "## wnf_app_dry          : " ++ show (App (Dry ff fx) v)
@@ -564,7 +564,7 @@ wnf_app_lam :: Env -> Stack -> Name -> Term -> Term -> IO Term
 wnf_app_lam e s fx ff v = do
   when debug $ putStrLn $ "## wnf_app_lam          : " ++ show (App (Lam fx ff) v)
   inc_inters e
-  subst e SubVar fx v
+  subst VAR e fx v
   wnf e s ff
 
 -- (&L{f,g} a)
@@ -572,17 +572,16 @@ wnf_app_sup :: Env -> Stack -> Lab -> Term -> Term -> Term -> IO Term
 wnf_app_sup e s fL fa fb v = do
   when debug $ putStrLn $ "## wnf_app_sup          : " ++ show (App (Sup fL fa fb) v)
   inc_inters e
-  x <- fresh e
-  duply e x fL v
-  wnf e s (Sup fL (App fa (Dp0 x)) (App fb (Dp1 x)))
+  (x0,x1) <- clone e fL v
+  wnf e s (Sup fL (App fa x0) (App fb x1))
 
 -- ! X &L = &{}
 wnf_dpn_era :: Env -> Stack -> Name -> Lab -> Term -> IO Term
 wnf_dpn_era e s k _ t = do
   when debug $ putStrLn $ "## wnf_dpn_era          : " ++ show (Dup k (name_to_int "_") Era t)
   inc_inters e
-  subst e SubDp0 k Era
-  subst e SubDp1 k Era
+  subst DP0 e k Era
+  subst DP1 e k Era
   wnf e s t
 
 -- ! F &L = λx.f
@@ -590,13 +589,12 @@ wnf_dpn_lam :: Env -> Stack -> Name -> Lab -> Name -> Term -> Term -> IO Term
 wnf_dpn_lam e s k l vk vf t = do
   when debug $ putStrLn $ "## wnf_dpn_lam          : " ++ show (Dup k l (Lam vk vf) t)
   inc_inters e
-  x0 <- fresh e
-  x1 <- fresh e
-  g  <- fresh e
-  subst e SubDp0 k (Lam x0 (Dp0 g))
-  subst e SubDp1 k (Lam x1 (Dp1 g))
-  subst e SubVar vk (Sup l (Var x0) (Var x1))
-  duply e g l vf
+  x0      <- fresh e
+  x1      <- fresh e
+  (g0,g1) <- clone e l vf
+  subst DP0 e k (Lam x0 g0)
+  subst DP1 e k (Lam x1 g1)
+  subst VAR e vk (Sup l (Var x0) (Var x1))
   wnf e s t
 
 -- ! X &L = &R{a,b}
@@ -605,18 +603,16 @@ wnf_dpn_sup e s k l vl va vb t
   | l == vl = do
       when debug $ putStrLn $ "## wnf_dpn_sup_same     : " ++ show (Dup k l (Sup vl va vb) t)
       inc_inters e
-      subst e SubDp0 k va
-      subst e SubDp1 k vb
+      subst DP0 e k va
+      subst DP1 e k vb
       wnf e s t
   | otherwise = do
       when debug $ putStrLn $ "## wnf_dpn_sup_diff     : " ++ show (Dup k l (Sup vl va vb) t)
       inc_inters e
-      a <- fresh e
-      b <- fresh e
-      subst e SubDp0 k (Sup vl (Dp0 a) (Dp0 b))
-      subst e SubDp1 k (Sup vl (Dp1 a) (Dp1 b))
-      duply e a l va
-      duply e b l vb
+      (a0,a1) <- clone e l va
+      (b0,b1) <- clone e l vb
+      subst DP0 e k (Sup vl a0 b0)
+      subst DP1 e k (Sup vl a1 b1)
       wnf e s t
 
 -- ! X &L = 0
@@ -624,8 +620,8 @@ wnf_dpn_zer :: Env -> Stack -> Name -> Lab -> Term -> IO Term
 wnf_dpn_zer e s k _ t = do
   when debug $ putStrLn $ "## wnf_dpn_zer          : " ++ show (Dup k (name_to_int "_") Zer t)
   inc_inters e
-  subst e SubDp0 k Zer
-  subst e SubDp1 k Zer
+  subst DP0 e k Zer
+  subst DP1 e k Zer
   wnf e s t
 
 -- ! X &L = 1+n
@@ -633,10 +629,9 @@ wnf_dpn_suc :: Env -> Stack -> Name -> Lab -> Term -> Term -> IO Term
 wnf_dpn_suc e s k l p t = do
   when debug $ putStrLn $ "## wnf_dpn_suc          : " ++ show (Dup k l (Suc p) t)
   inc_inters e
-  n <- fresh e
-  duply e n l p
-  subst e SubDp0 k (Suc (Dp0 n))
-  subst e SubDp1 k (Suc (Dp1 n))
+  (n0,n1) <- clone e l p
+  subst DP0 e k (Suc n0)
+  subst DP1 e k (Suc n1)
   wnf e s t
 
 -- ! X &L = Λ{0:z;1+:s}
@@ -644,21 +639,19 @@ wnf_dpn_swi :: Env -> Stack -> Name -> Lab -> Term -> Term -> Term -> IO Term
 wnf_dpn_swi e s k l vz vs t = do
   when debug $ putStrLn $ "## wnf_dpn_swi          : " ++ show (Dup k l (Swi vz vs) t)
   inc_inters e
-  z <- fresh e
-  sc <- fresh e
-  duply e z l vz
-  duply e sc l vs
-  subst e SubDp0 k (Swi (Dp0 z) (Dp0 sc))
-  subst e SubDp1 k (Swi (Dp1 z) (Dp1 sc))
+  (z0,z1) <- clone e l vz
+  (s0,s1) <- clone e l vs
+  subst DP0 e k (Swi z0 s0)
+  subst DP1 e k (Swi z1 s1)
   wnf e s t
 
--- ! X &L = Nam(N)
+-- ! X &L = .x
 wnf_dpn_nam :: Env -> Stack -> Name -> Lab -> String -> Term -> IO Term
 wnf_dpn_nam e s k _ n t = do
   when debug $ putStrLn $ "## wnf_dpn_nam          : " ++ show (Dup k (name_to_int "_") (Nam n) t)
   inc_inters e
-  subst e SubDp0 k (Nam n)
-  subst e SubDp1 k (Nam n)
+  subst DP0 e k (Nam n)
+  subst DP1 e k (Nam n)
   wnf e s t
 
 -- ! X &L = .(f x)
@@ -666,12 +659,10 @@ wnf_dpn_dry :: Env -> Stack -> Name -> Lab -> Term -> Term -> Term -> IO Term
 wnf_dpn_dry e s k l vf vx t = do
   when debug $ putStrLn $ "## wnf_dpn_dry          : " ++ show (Dup k l (Dry vf vx) t)
   inc_inters e
-  f <- fresh e
-  x <- fresh e
-  duply e f l vf
-  duply e x l vx
-  subst e SubDp0 k (Dry (Dp0 f) (Dp0 x))
-  subst e SubDp1 k (Dry (Dp1 f) (Dp1 x))
+  (f0,f1) <- clone e l vf
+  (x0,x1) <- clone e l vx
+  subst DP0 e k (Dry f0 x0)
+  subst DP1 e k (Dry f1 x1)
   wnf e s t
 
 -- ((f ~> g) a)
@@ -690,7 +681,7 @@ wnf_app_cal_lam :: Env -> Stack -> Term -> Name -> Term -> Term -> IO Term
 wnf_app_cal_lam e s f x g a = do
   when debug $ putStrLn $ "## wnf_app_cal_lam      : " ++ show (Cal f (Lam x g)) ++ " " ++ show a
   inc_inters e
-  subst e SubVar x a
+  subst VAR e x a
   wnf_enter e s (Cal (App f (Var x)) g)
 
 -- ((f ~> &L{x,y}) a)
@@ -698,12 +689,10 @@ wnf_app_cal_sup :: Env -> Stack -> Term -> Lab -> Term -> Term -> Term -> IO Ter
 wnf_app_cal_sup e s f l x y a = do
   when debug $ putStrLn $ "## wnf_app_cal_sup      : " ++ show (Cal f (Sup l x y)) ++ " " ++ show a
   inc_inters e
-  f' <- fresh e
-  a' <- fresh e
-  duply e f' l f
-  duply e a' l a
-  let app0 = App (Cal (Dp0 f') x) (Dp0 a')
-  let app1 = App (Cal (Dp1 f') y) (Dp1 a')
+  (f0,f1) <- clone e l f
+  (a0,a1) <- clone e l a
+  let app0 = (App (Cal f0 x) a0)
+  let app1 = (App (Cal f1 y) a1)
   wnf_enter e s (Sup l app0 app1)
 
 -- ((f ~> Λ{0:z;1+:s}) a)
@@ -715,8 +704,7 @@ wnf_app_cal_swi e s f z sc a = do
     Zer       -> wnf_app_cal_swi_zer e s f z
     Suc n     -> wnf_app_cal_swi_suc e s f sc n
     Sup l b c -> wnf_app_cal_swi_sup e s f z sc l b c
-    Nam k     -> wnf_unwind e s (App f (Nam k))
-    _         -> wnf_unwind e s (App (Cal f (Swi z sc)) a_wnf)
+    a         -> wnf_unwind e s (App f a)
 
 -- ((f ~> Λ{0:z;1+:s}) 0)
 wnf_app_cal_swi_zer :: Env -> Stack -> Term -> Term -> IO Term
@@ -738,16 +726,11 @@ wnf_app_cal_swi_sup :: Env -> Stack -> Term -> Term -> Term -> Lab -> Term -> Te
 wnf_app_cal_swi_sup e s f z sc l a b = do
   when debug $ putStrLn $ "## wnf_app_cal_swi_sup  : " ++ show (App (Cal f (Swi z sc)) (Sup l a b))
   inc_inters e
-  f' <- fresh e
-  z' <- fresh e
-  s' <- fresh e
-  duply e f' l f
-  duply e z' l z
-  duply e s' l sc
-  let swi0 = Swi (Dp0 z') (Dp0 s')
-  let swi1 = Swi (Dp1 z') (Dp1 s')
-  let app0 = App (Cal (Dp0 f') swi0) a
-  let app1 = App (Cal (Dp1 f') swi1) b
+  (f0,f1) <- clone e l f
+  (z0,z1) <- clone e l z
+  (s0,s1) <- clone e l sc
+  let app0 = App (Cal f0 (Swi z0 s0)) a
+  let app1 = App (Cal f1 (Swi z1 s1)) b
   wnf_enter e s (Sup l app0 app1)
 
 -- ! &L X = f ~> g
@@ -755,12 +738,10 @@ wnf_dpn_cal :: Env -> Stack -> Name -> Lab -> Term -> Term -> Term -> IO Term
 wnf_dpn_cal e s k l f g t = do
   when debug $ putStrLn $ "## wnf_dpn_cal          : " ++ show (Dup k l (Cal f g) t)
   inc_inters e
-  f' <- fresh e
-  g' <- fresh e
-  duply e f' l f
-  duply e g' l g
-  subst e SubDp0 k (Cal (Dp0 f') (Dp0 g'))
-  subst e SubDp1 k (Cal (Dp1 f') (Dp1 g'))
+  (f0,f1) <- clone e l f
+  (g0,g1) <- clone e l g
+  subst DP0 e k (Cal f0 g0)
+  subst DP1 e k (Cal f1 g1)
   wnf_enter e s t
 
 -- Allocation
@@ -823,13 +804,15 @@ snf e d x = do
       b' <- snf e d b
       return $ Sup l a' b'
     Lam k f -> do
-      subst e SubVar k (Nam (int_to_name d))
+      subst VAR e k (Nam (int_to_name d))
       f' <- snf e (d + 1) f
       return $ Lam d f'
     Dup k l v t -> do
+      subst DP0 e k (Nam (int_to_name d ++ "₀"))
+      subst DP1 e k (Nam (int_to_name d ++ "₁"))
       v' <- snf e d v
       t' <- snf e d t
-      return $ Dup k l v' t'
+      return $ Dup d l v' t'
     Zer -> do
       return Zer
     Suc p -> do
@@ -865,8 +848,8 @@ inj e f [] = do
 
 col :: Env -> Term -> IO Term
 col e x = do
-  !x' <- wnf e [] x
-  case x' of
+  !x <- wnf e [] x
+  case x of
     (Sup l a b) -> do
       a' <- col e a
       b' <- col e b
@@ -884,8 +867,15 @@ col e x = do
       xV <- fresh e
       f' <- col e f
       x' <- col e x
-      rt <- inj e (Lam fV (Lam xV (App (Var fV) (Var xV)))) [f',x']
-      return rt
+      inj e (Lam fV (Lam xV (App (Var fV) (Var xV)))) [f',x']
+    (Swi z s) -> do
+      zV <- fresh e
+      sV <- fresh e
+      z' <- col e z
+      s' <- col e s
+      inj e (Lam zV (Lam sV (Swi (Var zV) (Var sV)))) [z',s']
+    (Cal f g) -> do 
+      col e g
     x -> do
       return $ x
 
@@ -897,15 +887,16 @@ run book_src term_src = do
   let book = read_book book_src
   !env <- new_env book
   let term = read_term term_src
-  !val <- alloc env term
   !ini <- getCPUTime
-  !nf0 <- snf env 1 val
+  !val <- alloc env term
+  !val <- col env val
+  !val <- snf env 1 val
   -- !nf1 <- nf env 1 nf0
   !end <- getCPUTime
   !itr <- readIORef (env_inters env)
   let diff = fromIntegral (end - ini) / (10^12)
   let rate = fromIntegral itr / diff
-  putStrLn $ show nf0
+  putStrLn $ show val
   putStrLn $ "- Itrs: " ++ show itr ++ " interactions"
   printf "- Time: %.3f seconds\n" (diff :: Double)
   printf "- Perf: %.2f M interactions/s\n" (rate / 1000000 :: Double)
@@ -936,8 +927,17 @@ tests =
   , ("(@foo 1+1+1+0)", "&L{3,2}")
   , ("λx.(@dbl 1+1+x)", "λa.4+(@dbl a)")
   , ("("++f 2++" λX.(X λT0.λF0.F0 λT1.λF1.T1) λT2.λF2.T2)", "λa.λb.a")
-  , ("(@gen 2)", "&A{&B{2,3},&D{&C{0,1},1+&E{1+&C{0,1},3+&C{0,1}}}}")
-  , ("λx.(@gen 2+x)", "λa.&A{&B{2+a,3+a},&D{(@gen a),1+&E{1+(@gen a),3+(@gen a)}}}")
+  , ("1+&L{0,1}", "&L{1,2}")
+  , ("1+&A{&B{0,1},&C{2,3}}", "&A{&B{1,2},&C{3,4}}")
+  , ("λa.!A&L=a;&L{A₀,A₁}", "&L{λa.a,λa.a}")
+  , ("λa.λb.!A&L=a;!B&L=b;&L{λx.(x A₀ B₀),λx.(x A₁ B₁)}", "&L{λa.λb.λc.(c a b),λa.λb.λc.(c a b)}")
+  , ("λt.(t &A{1,2} 3)", "&A{λa.(a 1 3),λa.(a 2 3)}")
+  , ("λt.(t 1 &B{3,4})", "&B{λa.(a 1 3),λa.(a 1 4)}")
+  , ("λt.(t &A{1,2} &A{3,4})", "&A{λa.(a 1 3),λa.(a 2 4)}")
+  , ("λt.(t &A{1,2} &B{3,4})", "&A{&B{λa.(a 1 3),λa.(a 1 4)},&B{λa.(a 2 3),λa.(a 2 4)}}")
+  , ("@gen", "&A{&B{λa.a,λa.1+a},&C{&D{λ{0:0;1+:λa.(@gen a)},&E{λ{0:0;1+:λa.1+(@gen a)},λ{0:0;1+:λa.2+(@gen a)}}},&D{λ{0:1;1+:λa.(@gen a)},&E{λ{0:1;1+:λa.1+(@gen a)},λ{0:1;1+:λa.2+(@gen a)}}}}}")
+  , ("λx.(@gen 2+x)", "&A{&B{λa.2+a,λa.3+a},&D{λa.(@gen a),&E{λa.2+(@gen a),λa.4+(@gen a)}}}")
+  , ("(@gen 2)", "&A{&B{2,3},&D{&C{0,1},&E{&C{2,3},&C{4,5}}}}")
   ]
 
 book :: String
@@ -949,14 +949,14 @@ book = unlines
   , "@add = λ{0:λb.b;1+:λa.λb.1+(@add a b)}"
   , "@sum = λ{0:0;1+:λp.!P&S=p;1+(@add P₀ (@sum P₁))}"
   , "@foo = &L{λx.x,λ{0:0;1+:λp.p}}"
-  -- , "@gen = !F&A=@gen &A{λx.!X&B=x;&B{X₀,1+X₁},λ{0:&C{0,1};1+:λp.!G&D=F₁;!P&D=p;&D{(G₀ P₀),!H&E=G₁;!Q&E=P₁;1+&E{(H₀ Q₀),1+(H₁ Q₁)}}}}"
-  , "@gen = λx.!X&B=x;&B{X₀,X₁}"
+  , "@gen = !F&A=@gen &A{λx.!X&B=x;&B{X₀,1+X₁},λ{0:&C{0,1};1+:λp.!G&D=F₁;!P&D=p;&D{(G₀ P₀),!H&E=G₁;!Q&E=P₁;1+&E{(H₀ Q₀),1+(H₁ Q₁)}}}}"
   ]
 
 test :: IO ()
 test = forM_ tests $ \ (src, exp) -> do
   env <- new_env (read_book book)
-  det <- show <$> snf env 1 (read_term src)
+  det <- col env $ read_term src
+  det <- show <$> snf env 1 det
   if det == exp then do
     putStrLn $ "[PASS] " ++ src ++ " → " ++ det
   else do
@@ -964,30 +964,5 @@ test = forM_ tests $ \ (src, exp) -> do
     putStrLn $ "  - expected: " ++ exp
     putStrLn $ "  - detected: " ++ det
 
--- main :: IO ()
--- main = test
-
 main :: IO ()
-main = do
-  !env <- new_env $ read_book book
-  -- !val <- alloc env $ read_term "1+ &L{0, 1}"
-  -- !val <- alloc env $ read_term "λa. λb. λc. !A&L=a; !B&L=b; !C&L=c; &L{λt0.(t0 A₀ B₀ C₀),λt1.(t1 A₁ B₁ C₁)}"
-  -- !val <- alloc env $ read_term "λa. !A&L=a; &L{A₀,A₁}"
-  -- !val <- alloc env $ read_term "1+ &A{&B{0,1},&C{2,3}}"
-  -- !val <- alloc env $ read_term "λx. !X&L=x; &L{X₀,X₁}"
-  -- !val <- alloc env $ read_term "λt.(t 1 &B{3,4})"
-  -- !val <- alloc env $ read_term "λt.(t &A{1,2} &B{3,4})"
-  !val <- alloc env $ read_term "λt.(t &A{1,2} &A{3,4})"
-
-  !val <- col env val
-  !val <- snf env 1 val
-  putStrLn $ "NORM:"
-  putStrLn $ show val
-
-  -- TODO: print the env sub_map and dup_map below
-  sub <- readIORef (env_sub_map env)
-  dup <- readIORef (env_dup_map env)
-  putStrLn $ "SUBS:"
-  putStrLn $ show_sub_map sub
-  putStrLn $ "DUPS:"
-  putStrLn $ show_dup_map dup
+main = test
