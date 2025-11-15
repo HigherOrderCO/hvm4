@@ -1,6 +1,8 @@
 -- Calculus of Interactions
 -- ========================
+-- 
 -- CoI is a term rewrite system for the following grammar:
+--
 -- Term ::=
 -- | Var ::= Name
 -- | Dp0 ::= Name "₀"
@@ -276,7 +278,6 @@ data Env = Env
   , env_sub_map :: !(IORef (IM.IntMap Term))
   , env_dup_map :: !(IORef (IM.IntMap (Lab, Term)))
   }
-
 
 instance Show Semi where
   show sp = show (semi_term sp)
@@ -557,8 +558,8 @@ fresh e = do
   writeIORef (env_new_id e) (n + 1)
   return ((n `shiftL` 6) + 63)
 
-taker :: IORef (IM.IntMap a) -> Int -> IO (Maybe a)
-taker ref k = do
+map_take :: IORef (IM.IntMap a) -> Int -> IO (Maybe a)
+map_take ref k = do
   !m <- readIORef ref
   case IM.lookup k m of
     Nothing -> return Nothing
@@ -567,22 +568,18 @@ taker ref k = do
       return (Just v)
 
 take_dup :: Env -> Name -> IO (Maybe (Lab, Term))
-take_dup e k = taker (env_dup_map e) k
+take_dup e k = map_take (env_dup_map e) k
 
-take_sub :: Tag -> Env -> Name -> IO (Maybe Term)
-take_sub ki e k = taker (env_sub_map e) (k `shiftL` 2 + fromEnum ki)
+take_sub :: Env -> Name -> IO (Maybe Term)
+take_sub e k = map_take (env_sub_map e) k
 
-subst :: Tag -> Env -> Name -> Term -> IO ()
-subst ki e k v =
-  modifyIORef' (env_sub_map e) (IM.insert (k `shiftL` 2 + fromEnum ki) v)
-
-duply :: Env -> Name -> Lab -> Term -> IO ()
-duply e k l v = modifyIORef' (env_dup_map e) (IM.insert k (l, v))
+make_dup :: Env -> Name -> Lab -> Term -> IO ()
+make_dup e k l v = modifyIORef' (env_dup_map e) (IM.insert k (l, v))
 
 clone :: Env -> Lab -> Term -> IO (Term, Term)
 clone e l v = do
   k <- fresh e
-  duply e k l v
+  make_dup e k l v
   return (Dp0 k, Dp1 k)
 
 clones :: Env -> Lab -> [Term] -> IO ([Term],[Term])
@@ -591,6 +588,9 @@ clones e l (x : xs) = do
   (x0  , x1 ) <- clone  e l x
   (xs0 , xs1) <- clones e l xs
   return (x0 : xs0 , x1 : xs1)
+
+subst :: Env -> Name -> Term -> IO ()
+subst e k v = modifyIORef' (env_sub_map e) (IM.insert k v)
 
 -- Cloning for Ref Logic
 -- ---------------------
@@ -603,20 +603,22 @@ clone_ref_stack e l (frame : s) = do
       (x0, x1) <- clone e l x
       return (FApp x0, FApp x1)
     FDp0 k l' -> do
-      (k0, k1) <- clone_ref_stack_dup e k l
+      (k0, k1) <- clone_ref_stack_dup 0 e k l
       return (FDp0 k0 l', FDp0 k1 l')
     FDp1 k l' -> do
-      (k0, k1) <- clone_ref_stack_dup e k l
+      (k0, k1) <- clone_ref_stack_dup 1 e k l
       return (FDp1 k0 l', FDp1 k1 l')
   (s0, s1) <- clone_ref_stack e l s
   return (f0 : s0, f1 : s1)
 
-clone_ref_stack_dup :: Env -> Name -> Lab -> IO (Name, Name)
-clone_ref_stack_dup e k l = do
+clone_ref_stack_dup :: Int -> Env -> Name -> Lab -> IO (Name, Name)
+clone_ref_stack_dup d e k l = do
   k0 <- fresh e
   k1 <- fresh e
-  subst DP0 e k (Sup l (Dp0 k0) (Dp0 k1))
-  subst DP1 e k (Sup l (Dp1 k0) (Dp1 k1))
+  if d == 0 then do
+    subst e k (Sup l (Dp1 k0) (Dp1 k1))
+  else do
+    subst e k (Sup l (Dp0 k0) (Dp0 k1))
   return (k0, k1)
 
 clone_ref_subst :: Env -> Lab -> Subs -> IO (Subs, Subs)
@@ -629,9 +631,6 @@ clone_ref_subst e l m = go (IM.toList m) IM.empty IM.empty where
 -- Semi
 -- =====
 
--- Only expose semi_new, semi_app and semi_ctr for extension.
--- Other helpers are for completion / inspection.
-
 semi_new :: Name -> Semi
 semi_new k = Semi 0 (\_ -> Ref k)
 
@@ -639,7 +638,7 @@ semi_app :: Semi -> Term -> Semi
 semi_app (Semi n f) x = Semi n (\hs -> App (f hs) x)
 
 semi_ctr :: Semi -> Semi
-semi_ctr (Semi n f) = Semi (n + 1) (\(h:hs) -> App (f hs) (Suc h))
+semi_ctr (Semi n f) = Semi (n + 1) (\ (h:hs) -> App (f hs) (Suc h))
 
 semi_term :: Semi -> Term
 semi_term (Semi n f) = f (replicate n (Nam "_"))
@@ -652,9 +651,9 @@ kind_term VAR k = Var k
 kind_term DP0 k = Dp0 k
 kind_term DP1 k = Dp1 k
 
-dp_term :: Int -> Name -> Term
-dp_term 0 k = Dp0 k
-dp_term _ k = Dp1 k
+dp :: Int -> Name -> Term
+dp 0 k = Dp0 k
+dp 1 k = Dp1 k
 
 -- WNF: Weak Normal Form
 -- =====================
@@ -691,7 +690,7 @@ wnf_enter e s (App f x) = do
 
 wnf_enter e s (Dup k l v t) = do
   when debug $ putStrLn $ ">> wnf_enter_dup        : " ++ show (Dup k l v t)
-  duply e k l v
+  make_dup e k l v
   wnf_enter e s t
 
 wnf_enter e s (Ref k) = do
@@ -759,7 +758,7 @@ wnf_unwind e (fr:s) v = do
 wnf_sub :: Tag -> Env -> Stack -> Name -> IO Term
 wnf_sub ki e s k = do
   when debug $ putStrLn $ "## wnf_sub              : " ++ int_to_name k
-  mt <- take_sub ki e k
+  mt <- take_sub e k
   case mt of
     Just t  -> wnf e s t
     Nothing -> wnf_unwind e s (kind_term ki k)
@@ -809,7 +808,7 @@ wnf_app_lam :: Env -> Stack -> Name -> Term -> Term -> IO Term
 wnf_app_lam e s fx ff v = do
   when debug $ putStrLn $ "## wnf_app_lam          : " ++ show (App (Lam fx ff) v)
   inc_inters e
-  subst VAR e fx v
+  subst e fx v
   wnf e s ff
 
 wnf_app_sup :: Env -> Stack -> Lab -> Term -> Term -> Term -> IO Term
@@ -821,112 +820,124 @@ wnf_app_sup e s fL fa fb v = do
 
 wnf_dpn_era :: Int -> Env -> Stack -> Name -> Lab -> IO Term
 wnf_dpn_era d e s k _ = do
-  let t = dp_term d k
-  when debug $ putStrLn $ "## wnf_dpn_era          : " ++ show (Dup k (name_to_int "_") Era t)
+  when debug $ putStrLn $ "## wnf_dpn_era          : " ++ show (Dup k (name_to_int "_") Era (dp d k))
   inc_inters e
-  subst DP0 e k Era
-  subst DP1 e k Era
-  wnf e s t
+  subst e k Era
+  wnf e s Era
 
 wnf_dpn_sup :: Int -> Env -> Stack -> Name -> Lab -> Lab -> Term -> Term -> IO Term
 wnf_dpn_sup d e s k l vl va vb
   | l == vl = do
-      let t = dp_term d k
-      when debug $ putStrLn $ "## wnf_dpn_sup_same     : " ++ show (Dup k l (Sup vl va vb) t)
+      when debug $ putStrLn $ "## wnf_dpn_sup_same     : " ++ show (Dup k l (Sup vl va vb) (dp d k))
       inc_inters e
-      subst DP0 e k va
-      subst DP1 e k vb
-      wnf e s t
+      if d == 0 then do
+        subst e k vb
+        wnf e s va
+      else do
+        subst e k va
+        wnf e s vb
   | otherwise = do
-      let t = dp_term d k
-      when debug $ putStrLn $ "## wnf_dpn_sup_diff     : " ++ show (Dup k l (Sup vl va vb) t)
+      when debug $ putStrLn $ "## wnf_dpn_sup_diff     : " ++ show (Dup k l (Sup vl va vb) (dp d k))
       inc_inters e
       (a0,a1) <- clone e l va
       (b0,b1) <- clone e l vb
-      subst DP0 e k (Sup vl a0 b0)
-      subst DP1 e k (Sup vl a1 b1)
-      wnf e s t
+      let val0 = Sup vl a0 b0
+      let val1 = Sup vl a1 b1
+      if d == 0 then do
+        subst e k val1
+        wnf e s val0
+      else do
+        subst e k val0
+        wnf e s val1
 
 wnf_dpn_set :: Int -> Env -> Stack -> Name -> Lab -> IO Term
 wnf_dpn_set d e s k _ = do
-  let t = dp_term d k
-  when debug $ putStrLn $ "## wnf_dpn_set          : " ++ show (Dup k (name_to_int "_") Set t)
+  when debug $ putStrLn $ "## wnf_dpn_set          : " ++ show (Dup k (name_to_int "_") Set (dp d k))
   inc_inters e
-  subst DP0 e k Set
-  subst DP1 e k Set
-  wnf e s t
+  subst e k Set
+  wnf e s Set
 
 wnf_dpn_all :: Int -> Env -> Stack -> Name -> Lab -> Term -> Term -> IO Term
 wnf_dpn_all d e s k l va vb = do
-  let t = dp_term d k
-  when debug $ putStrLn $ "## wnf_dpn_all          : " ++ show (Dup k l (All va vb) t)
+  when debug $ putStrLn $ "## wnf_dpn_all          : " ++ show (Dup k l (All va vb) (dp d k))
   inc_inters e
   (a0,a1) <- clone e l va
   (b0,b1) <- clone e l vb
-  subst DP0 e k (All a0 b0)
-  subst DP1 e k (All a1 b1)
-  wnf e s t
+  let val0 = All a0 b0
+  let val1 = All a1 b1
+  if d == 0 then do
+    subst e k val1
+    wnf e s val0
+  else do
+    subst e k val0
+    wnf e s val1
 
 wnf_dpn_lam :: Int -> Env -> Stack -> Name -> Lab -> Name -> Term -> IO Term
 wnf_dpn_lam d e s k l vk vf = do
-  let t = dp_term d k
-  when debug $ putStrLn $ "## wnf_dpn_lam          : " ++ show (Dup k l (Lam vk vf) t)
+  when debug $ putStrLn $ "## wnf_dpn_lam          : " ++ show (Dup k l (Lam vk vf) (dp d k))
   inc_inters e
   x0      <- fresh e
   x1      <- fresh e
   (g0,g1) <- clone e l vf
-  subst DP0 e k (Lam x0 g0)
-  subst DP1 e k (Lam x1 g1)
-  subst VAR e vk (Sup l (Var x0) (Var x1))
-  wnf e s t
+  subst e vk (Sup l (Var x0) (Var x1))
+  let val0 = Lam x0 g0
+  let val1 = Lam x1 g1
+  if d == 0 then do
+    subst e k val1
+    wnf e s val0
+  else do
+    subst e k val0
+    wnf e s val1
 
 wnf_dpn_nat :: Int -> Env -> Stack -> Name -> Lab -> IO Term
 wnf_dpn_nat d e s k _ = do
-  let t = dp_term d k
-  when debug $ putStrLn $ "## wnf_dpn_nat          : " ++ show (Dup k (name_to_int "_") Nat t)
+  when debug $ putStrLn $ "## wnf_dpn_nat          : " ++ show (Dup k (name_to_int "_") Nat (dp d k))
   inc_inters e
-  subst DP0 e k Nat
-  subst DP1 e k Nat
-  wnf e s t
+  subst e k Nat
+  wnf e s Nat
 
 wnf_dpn_zer :: Int -> Env -> Stack -> Name -> Lab -> IO Term
 wnf_dpn_zer d e s k _ = do
-  let t = dp_term d k
-  when debug $ putStrLn $ "## wnf_dpn_zer          : " ++ show (Dup k (name_to_int "_") Zer t)
+  when debug $ putStrLn $ "## wnf_dpn_zer          : " ++ show (Dup k (name_to_int "_") Zer (dp d k))
   inc_inters e
-  subst DP0 e k Zer
-  subst DP1 e k Zer
-  wnf e s t
+  subst e k Zer
+  wnf e s Zer
 
 wnf_dpn_suc :: Int -> Env -> Stack -> Name -> Lab -> Term -> IO Term
 wnf_dpn_suc d e s k l p = do
-  let t = dp_term d k
-  when debug $ putStrLn $ "## wnf_dpn_suc          : " ++ show (Dup k l (Suc p) t)
+  when debug $ putStrLn $ "## wnf_dpn_suc          : " ++ show (Dup k l (Suc p) (dp d k))
   inc_inters e
   (n0,n1) <- clone e l p
-  subst DP0 e k (Suc n0)
-  subst DP1 e k (Suc n1)
-  wnf e s t
+  let val0 = Suc n0
+  let val1 = Suc n1
+  if d == 0 then do
+    subst e k val1
+    wnf e s val0
+  else do
+    subst e k val0
+    wnf e s val1
 
 wnf_dpn_nam :: Int -> Env -> Stack -> Name -> Lab -> String -> IO Term
 wnf_dpn_nam d e s k _ n = do
-  let t = dp_term d k
-  when debug $ putStrLn $ "## wnf_dpn_nam          : " ++ show (Dup k (name_to_int "_") (Nam n) t)
+  when debug $ putStrLn $ "## wnf_dpn_nam          : " ++ show (Dup k (name_to_int "_") (Nam n) (dp d k))
   inc_inters e
-  subst DP0 e k (Nam n)
-  subst DP1 e k (Nam n)
-  wnf e s t
+  subst e k (Nam n)
+  wnf e s (Nam n)
 
 wnf_dpn_dry :: Int -> Env -> Stack -> Name -> Lab -> Term -> Term -> IO Term
 wnf_dpn_dry d e s k l vf vx = do
-  let t = dp_term d k
-  when debug $ putStrLn $ "## wnf_dpn_dry          : " ++ show (Dup k l (Dry vf vx) t)
+  when debug $ putStrLn $ "## wnf_dpn_dry          : " ++ show (Dup k l (Dry vf vx) (dp d k))
   inc_inters e
   (f0,f1) <- clone e l vf
   (x0,x1) <- clone e l vx
-  subst DP0 e k (Dry f0 x0)
-  subst DP1 e k (Dry f1 x1)
-  wnf e s t
+  let val0 = Dry f0 x0
+  let val1 = Dry f1 x1
+  if d == 0 then do
+    subst e k val1
+    wnf e s val0
+  else do
+    subst e k val0
+    wnf e s val1
 
 -- WNF: Ref Logic
 -- --------------
@@ -1139,19 +1150,19 @@ alloc_var e holders k tag v = do
   case IM.lookup key hs of
     Nothing -> do
       h <- fresh e
-      subst VAR e h v
+      subst e h v
       writeIORef holders (IM.insert key h hs)
       return (Var h)
     Just old_h -> do
-      m_prev <- take_sub VAR e old_h
+      m_prev <- take_sub e old_h
       case m_prev of
         Nothing -> do
           error "unreachable"
         Just v_prev -> do
           (d0, d1) <- clone e 0 v_prev
-          subst VAR e old_h d0
+          subst e old_h d0
           new_h <- fresh e
-          subst VAR e new_h d1
+          subst e new_h d1
           writeIORef holders (IM.insert key new_h hs)
           return (Var new_h)
 
@@ -1160,46 +1171,54 @@ alloc_var e holders k tag v = do
 
 snf :: Env -> Int -> Term -> IO Term
 snf e d x = do
-  !x' <- wnf e [] x
-  case x' of
-    Var k -> return $ Var k
-    Dp0 k -> return $ Dp0 k
-    Dp1 k -> return $ Dp1 k
-    Era -> return Era
+  !x <- wnf e [] x
+  case x of
+    Var k -> do
+      return (Var k)
+    Dp0 k -> do
+      return (Dp0 k)
+    Dp1 k -> do
+      return (Dp1 k)
+    Era -> do
+      return Era
     Sup l a b -> do
-      a' <- snf e d a
-      b' <- snf e d b
-      return $ Sup l a' b'
+      a <- snf e d a
+      b <- snf e d b
+      return (Sup l a b)
     Dup k l v t -> do
-      subst DP0 e k (Nam (int_to_name d ++ "₀"))
-      subst DP1 e k (Nam (int_to_name d ++ "₁"))
-      v' <- snf e d v
-      t' <- snf e d t
-      return $ Dup d l v' t'
-    Set -> return Set
+      make_dup e k l (Sup l (Nam (int_to_name d ++ "₀")) (Nam (int_to_name d ++ "₁")))
+      v <- snf e d v
+      t <- snf e d t
+      return (Dup d l v t)
+    Set -> do
+      return Set
     All a b -> do
-      a' <- snf e d a
-      b' <- snf e d b
-      return $ All a' b'
+      a <- snf e d a
+      b <- snf e d b
+      return (All a b)
     Lam k f -> do
-      subst VAR e k (Nam (int_to_name d))
-      f' <- snf e (d + 1) f
-      return $ Lam d f'
-    App f x1 -> do
-      f' <- snf e d f
-      x'' <- snf e d x1
-      return $ App f' x''
-    Nat -> return Nat
-    Zer -> return Zer
+      subst e k (Nam (int_to_name d))
+      f <- snf e (d + 1) f
+      return (Lam d f)
+    App f x -> do
+      f <- snf e d f
+      x <- snf e d x
+      return (App f x)
+    Nat -> do
+      return Nat
+    Zer -> do
+      return Zer
     Suc p -> do
-      p' <- snf e d p
-      return $ Suc p'
-    Ref k -> return $ Ref k
-    Nam k -> return $ Nam k
-    Dry f x1 -> do
-      f' <- snf e d f
-      x'' <- snf e d x1
-      return $ Dry f' x''
+      p <- snf e d p
+      return (Suc p)
+    Ref k -> do
+      return (Ref k)
+    Nam k -> do
+      return (Nam k)
+    Dry f x -> do
+      f <- snf e d f
+      x <- snf e d x
+      return (Dry f x)
 
 -- Collapsing
 -- ==========
@@ -1282,6 +1301,8 @@ tests =
   , ("(@and 1+0 &L{1+0,0})", "&L{1,0}")
   , ("λx.(@and 0 x)", "λa.(@and 0 a)")
   , ("λx.(@and x 0)", "λa.(@and a 0)")
+  , ("(@dup 3)", "λa.(a 3 3)")
+  , ("λk.(@dup k)", "λa.λb.(b a a)")
   -- , ("(@sum 1+1+1+0)", "6")
   -- , ("λx.(@sum 1+1+1+x)", "λa.3+(@add a 2+(@add a 1+(@add a (@sum a))))")
   , ("(@foo 0)", "&L{0,0}")
@@ -1305,6 +1326,7 @@ book :: String
 book = unlines
   [ ""
   , "@id  = Λa.a"
+  , "@dup = Λx. λt. (t x x)"
   , "@not = Λ{0:1+0;1+:Λp.0}"
   , "@dbl = Λ{0:0;1+:Λp.1+1+(@dbl p)}"
   , "@and = Λ{0:Λ{0:0;1+:Λp.0};1+:Λp.Λ{0:0;1+:Λp.1+0}}"
@@ -1344,17 +1366,3 @@ test = forM_ tests $ \ (src, expd) -> do
 
 main :: IO ()
 main = test
-
-
-
-
-
-
-
-
-
-
-
-
-
-
