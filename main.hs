@@ -1076,19 +1076,16 @@ alloc e subs term = go subs IM.empty term where
   go s r (Dry f x)     = Dry <$> go s r f <*> go s r x
 
 wnf_ref_bind :: Term -> Path -> Term
-wnf_ref_bind x []           = x
-wnf_ref_bind x ((l,0):p)    = Sup l (wnf_ref_bind x p) Era
-wnf_ref_bind x ((l,1):p)    = Sup l Era (wnf_ref_bind x p)
+wnf_ref_bind x []        = x
+wnf_ref_bind x ((l,0):p) = Sup l (wnf_ref_bind x p) Era
+wnf_ref_bind x ((l,1):p) = Sup l Era (wnf_ref_bind x p)
 
-wnf_ref_wrap :: Env -> Term -> Path -> IO Term
-wnf_ref_wrap _e t []          = return t
-wnf_ref_wrap e  t ((l,d):p) = do
+wnf_ref_wrap e t []        = return t
+wnf_ref_wrap e t ((l,d):p) = do
   k <- fresh e
-  t <- wnf_ref_wrap e t p
-  case d of
-    0 -> return (Dup k l t (Dp0 k))
-    1 -> return (Dup k l t (Dp1 k))
-    _ -> error "invalid direction in path"
+  f <- return $ case d of { 0 -> Dp0 ; 1 -> Dp1 }
+  t <- return $ Dup k l t (f k)
+  wnf_ref_wrap e t p
 
 -- Normalization
 -- =============
@@ -1207,30 +1204,30 @@ f n = "λf." ++ dups ++ final where
 tests :: [(String,String)]
 tests =
   [ ("0", "0")
-  -- , ("(@not 0)", "1")
-  -- , ("(@not 1+0)", "0")
+  , ("(@not 0)", "1")
+  , ("(@not 1+0)", "0")
   , ("!F&L=@id;!G&L=F₀;λx.(G₁ x)", "λa.a")
-  -- , ("(@and 0 0)", "0")
-  -- , ("(@and &L{0,1+0} 1+0)", "&L{0,1}")
-  -- , ("(@and &L{1+0,0} 1+0)", "&L{1,0}")
-  -- , ("(@and 1+0 &L{0,1+0})", "&L{0,1}")
-  -- , ("(@and 1+0 &L{1+0,0})", "&L{1,0}")
-  -- , ("λx.(@and 0 x)", "λa.(@and 0 a)")
-  -- , ("λx.(@and x 0)", "λa.(@and a 0)")
+  , ("(@and 0 0)", "0")
+  , ("(@and &L{0,1+0} 1+0)", "&L{0,1}")
+  , ("(@and &L{1+0,0} 1+0)", "&L{1,0}")
+  , ("(@and 1+0 &L{0,1+0})", "&L{0,1}")
+  , ("(@and 1+0 &L{1+0,0})", "&L{1,0}")
+  , ("λx.(@and 0 x)", "λa.(@and 0 a)")
+  , ("λx.(@and x 0)", "λa.(@and a 0)")
   -- , ("(@sum 1+1+1+0)", "6")
   -- , ("λx.(@sum 1+1+1+x)", "λa.3+(@add a 2+(@add a 1+(@add a (@sum a))))")
-  -- , ("(@foo 0)", "&L{0,0}")
-  -- , ("(@foo 1+1+1+0)", "&L{3,2}")
-  -- , ("λx.(@dbl 1+1+x)", "λa.4+(@dbl a)")
-  -- , ("("++f 2++" λX.(X λT0.λF0.F0 λT1.λF1.T1) λT2.λF2.T2)", "λa.λb.a")
-  -- , ("1+&L{0,1}", "&L{1,2}")
-  -- , ("1+&A{&B{0,1},&C{2,3}}", "&A{&B{1,2},&C{3,4}}")
-  -- , ("λa.!A&L=a;&L{A₀,A₁}", "&L{λa.a,λa.a}")
-  -- , ("λa.λb.!A&L=a;!B&L=b;&L{λx.(x A₀ B₀),λx.(x A₁ B₁)}", "&L{λa.λb.λc.(c a b),λa.λb.λc.(c a b)}")
-  -- , ("λt.(t &A{1,2} 3)", "&A{λa.(a 1 3),λa.(a 2 3)}")
-  -- , ("λt.(t 1 &B{3,4})", "&B{λa.(a 1 3),λa.(a 1 4)}")
-  -- , ("λt.(t &A{1,2} &A{3,4})", "&A{λa.(a 1 3),λa.(a 2 4)}")
-  -- , ("λt.(t &A{1,2} &B{3,4})", "&A{&B{λa.(a 1 3),λa.(a 1 4)},&B{λa.(a 2 3),λa.(a 2 4)}}")
+  , ("(@foo 0)", "&L{0,0}")
+  , ("(@foo 1+1+1+0)", "&L{3,2}")
+  , ("λx.(@dbl 1+1+x)", "λa.4+(@dbl a)")
+  , ("("++f 2++" λX.(X λT0.λF0.F0 λT1.λF1.T1) λT2.λF2.T2)", "λa.λb.a")
+  , ("1+&L{0,1}", "&L{1,2}")
+  , ("1+&A{&B{0,1},&C{2,3}}", "&A{&B{1,2},&C{3,4}}")
+  , ("λa.!A&L=a;&L{A₀,A₁}", "&L{λa.a,λa.a}")
+  , ("λa.λb.!A&L=a;!B&L=b;&L{λx.(x A₀ B₀),λx.(x A₁ B₁)}", "&L{λa.λb.λc.(c a b),λa.λb.λc.(c a b)}")
+  , ("λt.(t &A{1,2} 3)", "&A{λa.(a 1 3),λa.(a 2 3)}")
+  , ("λt.(t 1 &B{3,4})", "&B{λa.(a 1 3),λa.(a 1 4)}")
+  , ("λt.(t &A{1,2} &A{3,4})", "&A{λa.(a 1 3),λa.(a 2 4)}")
+  , ("λt.(t &A{1,2} &B{3,4})", "&A{&B{λa.(a 1 3),λa.(a 1 4)},&B{λa.(a 2 3),λa.(a 2 4)}}")
   -- , ("@gen", "&A{&B{λa.a,λa.1+a},&C{&D{λ{0:0;1+:λa.(@gen a)},&E{λ{0:0;1+:λa.1+(@gen a)},λ{0:0;1+:λa.2+(@gen a)}}},&D{λ{0:1;1+:λa.(@gen a)},&E{λ{0:1;1+:λa.1+(@gen a)},λ{0:1;1+:λa.2+(@gen a)}}}}}")
   -- , ("λx.(@gen 2+x)", "&A{&B{λa.2+a,λa.3+a},&D{λa.(@gen a),&E{λa.2+(@gen a),λa.4+(@gen a)}}}")
   -- , ("(@gen 2)", "&A{&B{2,3},&D{&C{0,1},&E{&C{2,3},&C{4,5}}}}")
@@ -1244,7 +1241,7 @@ book = unlines
   , "@dbl = Λ{0:0;1+:Λp.1+1+(@dbl p)}"
   , "@and = Λ{0:Λ{0:0;1+:Λp.0};1+:Λp.Λ{0:0;1+:Λp.1+0}}"
   , "@add = Λ{0:Λb.b;1+:Λa.Λb.1+(@add a b)}"
-  , "@sum = Λ{0:0;1+:Λp.!P&S=p;1+(@add P₀ (@sum P₁))}"
+  -- , "@sum = Λ{0:0;1+:Λp.(@add p (@sum p))}"
   , "@foo = &L{Λx.x,Λ{0:0;1+:Λp.p}}"
   -- , "@gen = !F&A=@gen &A{Λx.!X&B=x;&B{X₀,1+X₁},Λ{0:&C{0,1};1+:Λp.!G&D=F₁;!P&D=p;&D{(G₀ P₀),!H&E=G₁;!Q&E=P₁;1+&E{(H₀ Q₀),1+(H₁ Q₁)}}}}"
   ]
@@ -1279,3 +1276,35 @@ test = forM_ tests $ \ (src, expd) -> do
 
 main :: IO ()
 main = test
+
+
+-- PROBLEM: the commented out test is failing.
+
+-- [FAIL] !F&L=@id;!G&L=F₀;λx.(G₁ x)
+  -- - expected: λa.a
+  -- - detected: λa.&{}
+
+-- why it reduces to λa.&{}?
+
+-- reason about the code and explain it below in English.
+-- provide example execution traces to back up your answer.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
