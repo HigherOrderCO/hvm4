@@ -15,7 +15,7 @@ import qualified Data.IntMap.Strict as IM
 import qualified Data.Map.Strict as M
 
 debug :: Bool
-debug = True
+debug = False
 
 -- Types
 -- =====
@@ -658,91 +658,104 @@ wnf_dpn_dry e s k l vf vx t = do
 -- --------------
 
 wnf_ref_apply :: Env -> Spine -> Func -> Stack -> Subs -> Path -> IO Term
-wnf_ref_apply e f x s m p = do
-  when debug $ putStrLn $ "## wnf_ref_apply        : " ++ show (spine_term_val f) ++ " " ++ show x
+wnf_ref_apply e f func s m p = do
+  when debug $ putStrLn $ "## wnf_ref_apply        : " ++ show (spine_term_val f) ++ " " ++ show func
   case s of
-    FDp0 k l : s' -> do
-       wnf_ref_apply e f x s' m (p ++ [(l, D0)])
-    FDp1 k l : s' -> do
-       wnf_ref_apply e f x s' m (p ++ [(l, D1)])
-    _ -> case x of
-      FAbs k g -> case s of
-        FApp a : s' -> do
-          inc_inters e
-          let a' = wnf_ref_bind a p
-          let m' = IM.insert k a' m
-          let f' = spine_add_arg f (Var k)
-          wnf_ref_apply e f' g s' m' p
-        _ -> wnf_ref_stuck e f s m p
+    FDp0 k l : s' -> wnf_ref_dp0 e f func s' m p k l
+    FDp1 k l : s' -> wnf_ref_dp1 e f func s' m p k l
+    _ -> case func of
+      FAbs k g   -> wnf_ref_fabs e f k g s m p
+      FSwi z sc  -> wnf_ref_fswi e f z sc s m p
+      FFrk k a b -> wnf_ref_ffrk e f k a b s m p
+      FDel       -> wnf_ref_fdel e f s m p
+      FRet t     -> wnf_ref_fret e f t s m p
 
-      FSwi z sc -> case s of
-        FApp t : s' -> do
-          t_val <- case t of
-             Zer -> return Zer
-             Suc _ -> return t
-             Sup _ _ _ -> return t
-             Era -> return Era
-             _ -> wnf e [] t
-          
-          case t_val of
-            Zer -> do
-              inc_inters e
-              let f' = spine_add_arg f Zer
-              wnf_ref_apply e f' z s' m p
-            
-            Suc a -> do
-              inc_inters e
-              let f' = spine_add_suc f
-              wnf_ref_apply e f' sc (FApp a : s') m p
+wnf_ref_dp0 :: Env -> Spine -> Func -> Stack -> Subs -> Path -> Name -> Lab -> IO Term
+wnf_ref_dp0 e f func s m p k l = do
+  wnf_ref_apply e f func s m (p ++ [(l, D0)])
 
-            Sup l a b -> do
-              inc_inters e
-              (s0, s1) <- clone_ref_stack e l s'
-              (m0, m1) <- clone_ref_subst e l m
-              let p0 = p ++ [(l, D0)]
-              let p1 = p ++ [(l, D1)]
-              r0 <- wnf_ref_apply e f x (FApp a : s0) m0 p0
-              r1 <- wnf_ref_apply e f x (FApp b : s1) m1 p1
-              return (Sup l r0 r1)
-            
-            Era -> return Era
+wnf_ref_dp1 :: Env -> Spine -> Func -> Stack -> Subs -> Path -> Name -> Lab -> IO Term
+wnf_ref_dp1 e f func s m p k l = do
+  wnf_ref_apply e f func s m (p ++ [(l, D1)])
 
-            _ -> wnf_ref_stuck e f s m p
+wnf_ref_fabs :: Env -> Spine -> Name -> Func -> Stack -> Subs -> Path -> IO Term
+wnf_ref_fabs e f k g s m p = case s of
+  FApp a : s' -> do
+    inc_inters e
+    let a' = wnf_ref_bind a p
+    let m' = IM.insert k a' m
+    let f' = spine_add_arg f (Var k)
+    wnf_ref_apply e f' g s' m' p
+  _ -> wnf_ref_stuck e f s m p
 
-        _ -> wnf_ref_stuck e f s m p
+wnf_ref_fswi :: Env -> Spine -> Func -> Func -> Stack -> Subs -> Path -> IO Term
+wnf_ref_fswi e f z sc s m p = case s of
+  FApp t : s' -> do
+    t_val <- wnf e [] t
+    case t_val of
+      Zer -> do
+        inc_inters e
+        let f' = spine_add_arg f Zer
+        wnf_ref_apply e f' z s' m p
+      Suc a -> do
+        inc_inters e
+        let f' = spine_add_suc f
+        wnf_ref_apply e f' sc (FApp a : s') m p
+      Sup l a b -> do
+        inc_inters e
+        (s0, s1) <- clone_ref_stack e l s'
+        (m0, m1) <- clone_ref_subst e l m
+        let p0 = p ++ [(l, D0)]
+        let p1 = p ++ [(l, D1)]
+        r0 <- wnf_ref_apply e f (FSwi z sc) (FApp a : s0) m0 p0
+        r1 <- wnf_ref_apply e f (FSwi z sc) (FApp b : s1) m1 p1
+        return (Sup l r0 r1)
+      Era -> do
+        return Era
+      _ -> do
+        wnf_ref_stuck e f (FApp t_val : s') m p
+  _ -> wnf_ref_stuck e f s m p
 
-      FFrk k a b -> do
-        case lookup_path k p of
-          Just D0 -> do
-            let p' = remove_path k p
-            wnf_ref_apply e f a s m p'
-          Just D1 -> do
-            let p' = remove_path k p
-            wnf_ref_apply e f b s m p'
-          Nothing -> do
-            (s0, s1) <- clone_ref_stack e k s
-            (m0, m1) <- clone_ref_subst e k m
-            r0 <- wnf_ref_apply e f a s0 m0 p
-            r1 <- wnf_ref_apply e f b s1 m1 p
-            return (Sup k r0 r1)
+wnf_ref_ffrk :: Env -> Spine -> Name -> Func -> Func -> Stack -> Subs -> Path -> IO Term
+wnf_ref_ffrk e f k a b s m p = do
+  case lookup_path k p of
+    Just D0 -> do
+      let p' = remove_path k p
+      wnf_ref_apply e f a s m p'
+    Just D1 -> do
+      let p' = remove_path k p
+      wnf_ref_apply e f b s m p'
+    Nothing -> do
+      (s0, s1) <- clone_ref_stack e k s
+      (m0, m1) <- clone_ref_subst e k m
+      r0 <- wnf_ref_apply e f a s0 m0 p
+      r1 <- wnf_ref_apply e f b s1 m1 p
+      return (Sup k r0 r1)
 
-      FDel -> return Era
+wnf_ref_fdel :: Env -> Spine -> Stack -> Subs -> Path -> IO Term
+wnf_ref_fdel e f s m p = return Era
 
-      FRet t -> do
-        t' <- wnf_ref_alloc e t m
-        wnf_ref_wrap e t' p
+wnf_ref_fret :: Env -> Spine -> Term -> Stack -> Subs -> Path -> IO Term
+wnf_ref_fret e f t s m p = do
+  t'  <- wnf_ref_alloc e t m
+  t'' <- wnf_unwind e s t'
+  wnf_ref_wrap e t'' p
 
-    where
-      lookup_path k p = lookup k (reverse p)
-      remove_path k p = reverse (remove_one k (reverse p))
-      remove_one k [] = []
-      remove_one k ((l,d):ps) | k == l = ps | otherwise = (l,d) : remove_one k ps
+lookup_path :: Name -> Path -> Maybe Dir
+lookup_path k p = lookup k (reverse p)
+
+remove_path :: Name -> Path -> Path
+remove_path k p = reverse (remove_one k (reverse p)) where
+  remove_one _ [] = []
+  remove_one k ((l,d):ps)
+    | k == l    = ps
+    | otherwise = (l,d) : remove_one k ps
 
 wnf_ref_stuck :: Env -> Spine -> Stack -> Subs -> Path -> IO Term
 wnf_ref_stuck e f s m p = do
-  t' <- wnf_ref_alloc e (spine_term_val f) m
-  t'' <- wnf_unwind e s t'
-  wnf_ref_wrap e t'' p
+  t <- wnf_ref_alloc e (spine_term_val f) m
+  t <- wnf_unwind e s t
+  wnf_ref_wrap e t p
 
 -- Cloning for Ref Logic
 -- ---------------------
@@ -968,30 +981,30 @@ f n = "λf." ++ dups ++ final where
 tests :: [(String,String)]
 tests =
   [ ("0", "0")
-  -- , ("(@not 0)", "1")
-  -- , ("(@not 1+0)", "0")
+  , ("(@not 0)", "1")
+  , ("(@not 1+0)", "0")
   -- , ("!F&L=@id;!G&L=F₀;λx.(G₁ x)", "λa.a")
-  -- , ("(@and 0 0)", "0")
-  -- , ("(@and &L{0,1+0} 1+0)", "&L{0,1}")
-  -- , ("(@and &L{1+0,0} 1+0)", "&L{1,0}")
-  -- , ("(@and 1+0 &L{0,1+0})", "&L{0,1}")
-  -- , ("(@and 1+0 &L{1+0,0})", "&L{1,0}")
+  , ("(@and 0 0)", "0")
+  , ("(@and &L{0,1+0} 1+0)", "&L{0,1}")
+  , ("(@and &L{1+0,0} 1+0)", "&L{1,0}")
+  , ("(@and 1+0 &L{0,1+0})", "&L{0,1}")
+  , ("(@and 1+0 &L{1+0,0})", "&L{1,0}")
   , ("λx.(@and 0 x)", "λa.(@and 0 a)")
-  -- , ("λx.(@and x 0)", "λa.(@and a 0)")
+  , ("λx.(@and x 0)", "λa.(@and a 0)")
   -- , ("(@sum 1+1+1+0)", "6")
   -- , ("λx.(@sum 1+1+1+x)", "λa.3+(@add a 2+(@add a 1+(@add a (@sum a))))")
-  -- , ("(@foo 0)", "&L{0,0}")
-  -- , ("(@foo 1+1+1+0)", "&L{3,2}")
-  -- , ("λx.(@dbl 1+1+x)", "λa.4+(@dbl a)")
-  -- , ("("++f 2++" λX.(X λT0.λF0.F0 λT1.λF1.T1) λT2.λF2.T2)", "λa.λb.a")
-  -- , ("1+&L{0,1}", "&L{1,2}")
-  -- , ("1+&A{&B{0,1},&C{2,3}}", "&A{&B{1,2},&C{3,4}}")
-  -- , ("λa.!A&L=a;&L{A₀,A₁}", "&L{λa.a,λa.a}")
-  -- , ("λa.λb.!A&L=a;!B&L=b;&L{λx.(x A₀ B₀),λx.(x A₁ B₁)}", "&L{λa.λb.λc.(c a b),λa.λb.λc.(c a b)}")
-  -- , ("λt.(t &A{1,2} 3)", "&A{λa.(a 1 3),λa.(a 2 3)}")
-  -- , ("λt.(t 1 &B{3,4})", "&B{λa.(a 1 3),λa.(a 1 4)}")
-  -- , ("λt.(t &A{1,2} &A{3,4})", "&A{λa.(a 1 3),λa.(a 2 4)}")
-  -- , ("λt.(t &A{1,2} &B{3,4})", "&A{&B{λa.(a 1 3),λa.(a 1 4)},&B{λa.(a 2 3),λa.(a 2 4)}}")
+  , ("(@foo 0)", "&L{0,0}")
+  , ("(@foo 1+1+1+0)", "&L{3,2}")
+  , ("λx.(@dbl 1+1+x)", "λa.4+(@dbl a)")
+  , ("("++f 2++" λX.(X λT0.λF0.F0 λT1.λF1.T1) λT2.λF2.T2)", "λa.λb.a")
+  , ("1+&L{0,1}", "&L{1,2}")
+  , ("1+&A{&B{0,1},&C{2,3}}", "&A{&B{1,2},&C{3,4}}")
+  , ("λa.!A&L=a;&L{A₀,A₁}", "&L{λa.a,λa.a}")
+  , ("λa.λb.!A&L=a;!B&L=b;&L{λx.(x A₀ B₀),λx.(x A₁ B₁)}", "&L{λa.λb.λc.(c a b),λa.λb.λc.(c a b)}")
+  , ("λt.(t &A{1,2} 3)", "&A{λa.(a 1 3),λa.(a 2 3)}")
+  , ("λt.(t 1 &B{3,4})", "&B{λa.(a 1 3),λa.(a 1 4)}")
+  , ("λt.(t &A{1,2} &A{3,4})", "&A{λa.(a 1 3),λa.(a 2 4)}")
+  , ("λt.(t &A{1,2} &B{3,4})", "&A{&B{λa.(a 1 3),λa.(a 1 4)},&B{λa.(a 2 3),λa.(a 2 4)}}")
   -- , ("@gen", "&A{&B{λa.a,λa.1+a},&C{&D{λ{0:0;1+:λa.(@gen a)},&E{λ{0:0;1+:λa.1+(@gen a)},λ{0:0;1+:λa.2+(@gen a)}}},&D{λ{0:1;1+:λa.(@gen a)},&E{λ{0:1;1+:λa.1+(@gen a)},λ{0:1;1+:λa.2+(@gen a)}}}}}")
   -- , ("λx.(@gen 2+x)", "&A{&B{λa.2+a,λa.3+a},&D{λa.(@gen a),&E{λa.2+(@gen a),λa.4+(@gen a)}}}")
   -- , ("(@gen 2)", "&A{&B{2,3},&D{&C{0,1},&E{&C{2,3},&C{4,5}}}}")
@@ -1040,12 +1053,3 @@ test = forM_ tests $ \ (src, exp) -> do
 
 main :: IO ()
 main = test
-
-
-
-
-
-
-
-
-
