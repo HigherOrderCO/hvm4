@@ -1015,9 +1015,9 @@ wnf_ref_del _e _sp _s _m _p = return Era
 
 wnf_ref_ret :: Env -> Semi -> Term -> Stack -> Subs -> Path -> IO Term
 wnf_ref_ret e _sp t s m p = do
- t <- alloc e m t
- t <- wnf e s t
- wnf_ref_wrap e t p
+  t <- alloc e m t
+  t <- wnf_ref_wrap e t p
+  wnf e s t
 
 lookup_path :: Lab -> Path -> Maybe Int
 lookup_path k = go Nothing where
