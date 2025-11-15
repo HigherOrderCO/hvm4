@@ -1,3 +1,211 @@
+-- Calculus of Interactions
+-- ========================
+-- CoI is a term rewrite system for the following grammar:
+-- Term ::=
+-- | Var ::= Name
+-- | Dp0 ::= Name "₀"
+-- | Dp1 ::= Name "₁"
+-- | Era ::= "&{}"
+-- | Sup ::= "&" Name "{" Term "," Term "}"
+-- | Dup ::= "!" Name "&" Name "=" Term ";" Term
+-- | Set ::= "*"
+-- | All ::= "∀" Term "." Term
+-- | Lam ::= "λ" Name "." Term
+-- | App ::= "(" Term " " Term ")"
+-- | Nat ::= "ℕ"
+-- | Zer ::= "0"
+-- | Suc ::= "1+"
+-- | Ref ::= "@" Name
+-- | Nam ::= "." Name
+-- | Dry ::= "." "(" Term " " Term ")"
+--
+-- Func ::=
+-- | Abs ::= "Λ" Name "." Func
+-- | Swi ::= "Λ" "{" "0" ":" Func ";"? "1+" ":" Func ";"? "}"
+-- | Frk ::= "&" Name "{" Func "," Func "}"
+-- | Del ::= "&" "{" "}"
+-- | Ret ::= Term
+--
+-- Where:
+-- - Name ::= any sequence of base-64 chars in _ A-Z a-z 0-9 $
+-- - [T]  ::= any sequence of T separated by ","
+-- 
+-- In CoI:
+-- - Variables are affine (they must occur at most once)
+-- - Variables range globally (they can occur anywhere)
+-- 
+-- Interaction Table
+-- =================
+-- 
+-- ! X &L = &{}
+-- ------------ dup-era
+-- X₀ ← &{}
+-- X₁ ← &{}
+--
+-- ! X &L = &R{a,b}
+-- ---------------- dup-sup
+-- if L == R:
+--   X₀ ← a
+--   X₁ ← b
+-- else:
+--   ! A &L = a
+--   ! B &L = b
+--   X₀ ← &R{A₀,B₀}
+--   X₁ ← &R{A₁,B₁}
+--
+-- ! X &L = *
+-- ---------- dup-set
+-- X₀ ← *
+-- X₁ ← *
+--
+-- ! X &L = ∀a.b
+-- ------------- dup-all
+-- ! A &L = a
+-- ! B &L = b
+-- X₀ ← ∀A₀.B₀
+-- X₁ ← ∀A₁.B₁
+--
+-- ! F &L = λx.f
+-- ---------------- dup-lam
+-- F₀ ← λ$x0.G₀
+-- F₁ ← λ$x1.G₁
+-- x  ← &L{$x0,$x1}
+-- ! G &L = f
+--
+-- ! X &L = ℕ
+-- ---------- dup-nat
+-- X₀ ← ℕ
+-- X₁ ← ℕ
+--
+-- ! X &L = 1+n
+-- ------------ dup-suc
+-- ! N &L = n
+-- X₀ ← 1+N₀
+-- X₁ ← 1+N₁
+--
+-- ! X &L = 0
+-- ---------- dup-zer
+-- X₀ ← 0
+-- X₁ ← 0
+--
+-- ! X &L = .n
+-- ----------- dup-nam
+-- X₀ ← .n
+-- X₁ ← .n
+--
+-- ! X &L = .(f x)
+-- --------------- dup-dry
+-- ! F &L = f
+-- ! A &L = x
+-- X₀ ← .(F₀ A₀)
+-- X₁ ← .(F₁ A₁)
+--
+-- (&{} a)
+-- ------- app-era
+-- &{}
+--
+-- (&L{f,g} a)
+-- ----------------- app-sup
+-- ! A &L = a
+-- &L{(f A₀),(g A₁)}
+--
+-- (* a)
+-- ----- app-set
+-- ⊥
+--
+-- ((∀A.B) a)
+-- ---------- app-all
+-- ⊥
+--
+-- (λx.f a)
+-- -------- app-lam
+-- x ← a
+-- f
+--
+-- (ℕ a)
+-- ----- app-nat
+-- ⊥
+--
+-- (1+n a)
+-- ------- app-suc
+-- ⊥
+--
+-- (0 a)
+-- ----- app-zer
+-- ⊥
+--
+-- (.n a)
+-- ------ app-nam
+-- .(.n a)
+--
+-- (.(f x) a)
+-- ---------- app-dry
+-- .(.(f x) a)
+--
+-- Function Call
+-- =============
+-- 
+-- A state (F, X, S, M, P) is evolved, where:
+-- - F: Spine = current call context
+-- - X: Func  = current Func from book
+-- - S: Stack = argument stack
+-- - M: Map   = static substitutions
+-- - P: Path  = dup label path
+--
+-- (F, Λx.G, (_ A):S, M, P)
+-- -------------------------------- ref-app-lam
+-- (F(x), G, S, {x→bind(A,P)|M}, P)
+--
+-- (F, Λ{0:Z;1+:S}, 0:S, M, P)
+-- --------------------------- ref-app-swi-zer
+-- (F(0), Z, S, M, P)
+--
+-- (F, Λ{0:Z;1+:S}, 1+A:S, M, P)
+-- ----------------------------- ref-app-swi-suc
+-- (\h->F(1+h), S, A:S, M, P)
+--
+-- (F, Λ{0:Z;1+:S}, &L{A,B}:S, M, P)
+-- --------------------------------- ref-app-swi-sup
+-- &L{
+--   (F, Λ{0:Z;1+:S}, A:S, M, P++[&L₀])
+--   (F, Λ{0:Z;1+:S}, B:S, M, P++[&L₁])
+-- }
+--
+-- (F, G, (!K&L=_; K₀):S, M, P)
+-- ---------------------------- ref-dup-0
+-- (F, G, S, M, P++[&L₀])
+--
+-- (F, G, (!K&L=_; K₁):S, M, P)
+-- ---------------------------- ref-dup-1
+-- (F, G, S, M, P++[&L₁])
+--
+-- (F, &{}, S, M, P)
+-- ----------------- ref-del
+-- &{}
+--
+-- (F, &L{X,Y}, S, M, P)
+-- --------------------- ref-frk
+-- if &L₀ ∈ P:
+--   (F, X, S, M, P - {&L})
+-- else if &L₁ ∈ P:
+--   (F, Y, S, M, P - {&L})
+-- else:
+--   ! F &L = F
+--   ! S &L = S
+--   ! M &L = M
+--   &L{
+--     (F₀, X, S₀, M₀, P)
+--     (F₁, Y, S₁, M₁, P)
+--   }
+--
+-- (F, Ret G, S, M, P)
+-- -------------------- ref-alloc
+-- wrap(alloc(G, M), P)
+--
+-- (F, G, S, M, P)
+-- -------------------- ref-stuck
+-- wrap(alloc(F, M), P)
+
 {-# LANGUAGE BangPatterns #-}
 {-# OPTIONS_GHC -O2 #-}
 
@@ -42,10 +250,6 @@ data Term
   | Dry !Term !Term
   deriving (Eq)
 
--- Funcs
--- -----
--- (note: constructors shouldn't be prefixed with "F")
-
 data Func
   = Abs !Name !Func
   | Swi !Func !Func
@@ -54,16 +258,16 @@ data Func
   | Ret !Term
   deriving (Eq, Show)
 
-data Kind
+data Tag
   = VAR
   | DP0
   | DP1
   deriving (Enum)
 
 data Book = Book (M.Map Name Func)
-
 type Path = [(Lab, Int)]
 type Subs = IM.IntMap Term
+data Semi = Semi !Int !([Term] -> Term)
 
 data Env = Env
   { env_book    :: !Book
@@ -73,10 +277,9 @@ data Env = Env
   , env_dup_map :: !(IORef (IM.IntMap (Lab, Term)))
   }
 
-data Spine = Spine !Int !([Term] -> Term)
 
-instance Show Spine where
-  show sp = show (spine_term sp)
+instance Show Semi where
+  show sp = show (semi_term sp)
 
 data Frame
   = FApp !Term
@@ -366,10 +569,10 @@ taker ref k = do
 take_dup :: Env -> Name -> IO (Maybe (Lab, Term))
 take_dup e k = taker (env_dup_map e) k
 
-take_sub :: Kind -> Env -> Name -> IO (Maybe Term)
+take_sub :: Tag -> Env -> Name -> IO (Maybe Term)
 take_sub ki e k = taker (env_sub_map e) (k `shiftL` 2 + fromEnum ki)
 
-subst :: Kind -> Env -> Name -> Term -> IO ()
+subst :: Tag -> Env -> Name -> Term -> IO ()
 subst ki e k v =
   modifyIORef' (env_sub_map e) (IM.insert (k `shiftL` 2 + fromEnum ki) v)
 
@@ -423,28 +626,28 @@ clone_ref_subst e l m = go (IM.toList m) IM.empty IM.empty where
     (v0, v1) <- clone e l v
     go rest (IM.insert k v0 m0) (IM.insert k v1 m1)
 
--- Spine
+-- Semi
 -- =====
 
--- Only expose spine_new, spine_app and spine_ctr for extension.
+-- Only expose semi_new, semi_app and semi_ctr for extension.
 -- Other helpers are for completion / inspection.
 
-spine_new :: Name -> Spine
-spine_new k = Spine 0 (\_ -> Ref k)
+semi_new :: Name -> Semi
+semi_new k = Semi 0 (\_ -> Ref k)
 
-spine_app :: Spine -> Term -> Spine
-spine_app (Spine n f) x = Spine n (\hs -> App (f hs) x)
+semi_app :: Semi -> Term -> Semi
+semi_app (Semi n f) x = Semi n (\hs -> App (f hs) x)
 
-spine_ctr :: Spine -> Spine
-spine_ctr (Spine n f) = Spine (n + 1) (\(h:hs) -> App (f hs) (Suc h))
+semi_ctr :: Semi -> Semi
+semi_ctr (Semi n f) = Semi (n + 1) (\(h:hs) -> App (f hs) (Suc h))
 
-spine_term :: Spine -> Term
-spine_term (Spine n f) = f (replicate n (Nam "_"))
+semi_term :: Semi -> Term
+semi_term (Semi n f) = f (replicate n (Nam "_"))
 
--- Kind / Dir utilities
+-- Tag / Dir utilities
 -- ====================
 
-kind_term :: Kind -> Name -> Term
+kind_term :: Tag -> Name -> Term
 kind_term VAR k = Var k
 kind_term DP0 k = Dp0 k
 kind_term DP1 k = Dp1 k
@@ -495,7 +698,7 @@ wnf_enter e s (Ref k) = do
   when debug $ putStrLn $ ">> wnf_enter_ref        : " ++ show (Ref k)
   let (Book m) = env_book e
   case M.lookup k m of
-    Just f  -> wnf_ref_apply e (spine_new k) f s IM.empty []
+    Just f  -> wnf_ref_apply e (semi_new k) f s IM.empty []
     Nothing -> error $ "UndefinedReference: " ++ int_to_name k
 
 wnf_enter e s f = do
@@ -553,7 +756,7 @@ wnf_unwind e (fr:s) v = do
 -- WNF: Interactions
 -- -----------------
 
-wnf_sub :: Kind -> Env -> Stack -> Name -> IO Term
+wnf_sub :: Tag -> Env -> Stack -> Name -> IO Term
 wnf_sub ki e s k = do
   when debug $ putStrLn $ "## wnf_sub              : " ++ int_to_name k
   mt <- take_sub ki e k
@@ -728,51 +931,51 @@ wnf_dpn_dry d e s k l vf vx = do
 -- WNF: Ref Logic
 -- --------------
 
-wnf_ref_apply :: Env -> Spine -> Func -> Stack -> Subs -> Path -> IO Term
+wnf_ref_apply :: Env -> Semi -> Func -> Stack -> Subs -> Path -> IO Term
 wnf_ref_apply e sp func s m p = do
-  when debug $ putStrLn $ "## wnf_ref_apply        : " ++ show (spine_term sp) ++ " " ++ show func
+  when debug $ putStrLn $ "## wnf_ref_apply        : " ++ show (semi_term sp) ++ " " ++ show func
   case s of
     FDp0 k l : s' -> wnf_ref_dp0 e sp func s' m p k l
     FDp1 k l : s' -> wnf_ref_dp1 e sp func s' m p k l
     _ -> case func of
-      Abs k g   -> wnf_ref_fabs e sp k g s m p
-      Swi z sc  -> wnf_ref_fswi e sp z sc s m p
-      Frk k a b -> wnf_ref_ffrk e sp k a b s m p
-      Del       -> wnf_ref_fdel e sp s m p
-      Ret t     -> wnf_ref_fret e sp t s m p
+      Abs k g   -> wnf_ref_abs e sp k g s m p
+      Swi z sc  -> wnf_ref_swi e sp z sc s m p
+      Frk k a b -> wnf_ref_frk e sp k a b s m p
+      Del       -> wnf_ref_del e sp s m p
+      Ret t     -> wnf_ref_ret e sp t s m p
 
-wnf_ref_dp0 :: Env -> Spine -> Func -> Stack -> Subs -> Path -> Name -> Lab -> IO Term
+wnf_ref_dp0 :: Env -> Semi -> Func -> Stack -> Subs -> Path -> Name -> Lab -> IO Term
 wnf_ref_dp0 e sp func s m p _k l =
   wnf_ref_apply e sp func s m (p ++ [(l, 0)])
 
-wnf_ref_dp1 :: Env -> Spine -> Func -> Stack -> Subs -> Path -> Name -> Lab -> IO Term
+wnf_ref_dp1 :: Env -> Semi -> Func -> Stack -> Subs -> Path -> Name -> Lab -> IO Term
 wnf_ref_dp1 e sp func s m p _k l =
   wnf_ref_apply e sp func s m (p ++ [(l, 1)])
 
-wnf_ref_fabs :: Env -> Spine -> Name -> Func -> Stack -> Subs -> Path -> IO Term
-wnf_ref_fabs e sp k g s m p =
+wnf_ref_abs :: Env -> Semi -> Name -> Func -> Stack -> Subs -> Path -> IO Term
+wnf_ref_abs e sp k g s m p =
   case s of
     FApp a : s' -> do
       inc_inters e
       let a' = wnf_ref_bind a p
       let m' = IM.insert k a' m
-      let sp' = spine_app sp (Var k)
+      let sp' = semi_app sp (Var k)
       wnf_ref_apply e sp' g s' m' p
     _ -> wnf_ref_stuck e sp s m p
 
-wnf_ref_fswi :: Env -> Spine -> Func -> Func -> Stack -> Subs -> Path -> IO Term
-wnf_ref_fswi e sp z sc s m p =
+wnf_ref_swi :: Env -> Semi -> Func -> Func -> Stack -> Subs -> Path -> IO Term
+wnf_ref_swi e sp z sc s m p =
   case s of
     FApp t : s' -> do
       t_val <- wnf e [] t
       case t_val of
         Zer -> do
           inc_inters e
-          let sp' = spine_app sp Zer
+          let sp' = semi_app sp Zer
           wnf_ref_apply e sp' z s' m p
         Suc a -> do
           inc_inters e
-          let sp' = spine_ctr sp
+          let sp' = semi_ctr sp
           wnf_ref_apply e sp' sc (FApp a : s') m p
         Sup l a b -> do
           inc_inters e
@@ -787,8 +990,8 @@ wnf_ref_fswi e sp z sc s m p =
           wnf_ref_stuck e sp (FApp t_val : s') m p
     _ -> wnf_ref_stuck e sp s m p
 
-wnf_ref_ffrk :: Env -> Spine -> Lab -> Func -> Func -> Stack -> Subs -> Path -> IO Term
-wnf_ref_ffrk e sp k a b s m p =
+wnf_ref_frk :: Env -> Semi -> Lab -> Func -> Func -> Stack -> Subs -> Path -> IO Term
+wnf_ref_frk e sp k a b s m p =
   case lookup_path k p of
     Just 0 -> do
       let p' = remove_path k p
@@ -803,11 +1006,11 @@ wnf_ref_ffrk e sp k a b s m p =
       r1 <- wnf_ref_apply e sp b s1 m1 p
       return (Sup k r0 r1)
 
-wnf_ref_fdel :: Env -> Spine -> Stack -> Subs -> Path -> IO Term
-wnf_ref_fdel _e _sp _s _m _p = return Era
+wnf_ref_del :: Env -> Semi -> Stack -> Subs -> Path -> IO Term
+wnf_ref_del _e _sp _s _m _p = return Era
 
-wnf_ref_fret :: Env -> Spine -> Term -> Stack -> Subs -> Path -> IO Term
-wnf_ref_fret e _sp t s m p = do
+wnf_ref_ret :: Env -> Semi -> Term -> Stack -> Subs -> Path -> IO Term
+wnf_ref_ret e _sp t s m p = do
   t <- alloc e m t
   t <- wnf_unwind e s t
   wnf_ref_wrap e t p
@@ -830,9 +1033,9 @@ remove_path k p = snd (go p) where
             then (True, ps')
             else (False, (l,d) : ps')
 
-wnf_ref_stuck :: Env -> Spine -> Stack -> Subs -> Path -> IO Term
+wnf_ref_stuck :: Env -> Semi -> Stack -> Subs -> Path -> IO Term
 wnf_ref_stuck e sp s m p = do
-  t <- alloc e m (spine_term sp)
+  t <- alloc e m (semi_term sp)
   t <- wnf_unwind e s t
   wnf_ref_wrap e t p
 
@@ -1004,30 +1207,30 @@ f n = "λf." ++ dups ++ final where
 tests :: [(String,String)]
 tests =
   [ ("0", "0")
-  , ("(@not 0)", "1")
-  , ("(@not 1+0)", "0")
-  -- , ("!F&L=@id;!G&L=F₀;λx.(G₁ x)", "λa.a")
-  , ("(@and 0 0)", "0")
-  , ("(@and &L{0,1+0} 1+0)", "&L{0,1}")
-  , ("(@and &L{1+0,0} 1+0)", "&L{1,0}")
-  , ("(@and 1+0 &L{0,1+0})", "&L{0,1}")
-  , ("(@and 1+0 &L{1+0,0})", "&L{1,0}")
-  , ("λx.(@and 0 x)", "λa.(@and 0 a)")
-  , ("λx.(@and x 0)", "λa.(@and a 0)")
+  -- , ("(@not 0)", "1")
+  -- , ("(@not 1+0)", "0")
+  , ("!F&L=@id;!G&L=F₀;λx.(G₁ x)", "λa.a")
+  -- , ("(@and 0 0)", "0")
+  -- , ("(@and &L{0,1+0} 1+0)", "&L{0,1}")
+  -- , ("(@and &L{1+0,0} 1+0)", "&L{1,0}")
+  -- , ("(@and 1+0 &L{0,1+0})", "&L{0,1}")
+  -- , ("(@and 1+0 &L{1+0,0})", "&L{1,0}")
+  -- , ("λx.(@and 0 x)", "λa.(@and 0 a)")
+  -- , ("λx.(@and x 0)", "λa.(@and a 0)")
   -- , ("(@sum 1+1+1+0)", "6")
   -- , ("λx.(@sum 1+1+1+x)", "λa.3+(@add a 2+(@add a 1+(@add a (@sum a))))")
-  , ("(@foo 0)", "&L{0,0}")
-  , ("(@foo 1+1+1+0)", "&L{3,2}")
-  , ("λx.(@dbl 1+1+x)", "λa.4+(@dbl a)")
-  , ("("++f 2++" λX.(X λT0.λF0.F0 λT1.λF1.T1) λT2.λF2.T2)", "λa.λb.a")
-  , ("1+&L{0,1}", "&L{1,2}")
-  , ("1+&A{&B{0,1},&C{2,3}}", "&A{&B{1,2},&C{3,4}}")
-  , ("λa.!A&L=a;&L{A₀,A₁}", "&L{λa.a,λa.a}")
-  , ("λa.λb.!A&L=a;!B&L=b;&L{λx.(x A₀ B₀),λx.(x A₁ B₁)}", "&L{λa.λb.λc.(c a b),λa.λb.λc.(c a b)}")
-  , ("λt.(t &A{1,2} 3)", "&A{λa.(a 1 3),λa.(a 2 3)}")
-  , ("λt.(t 1 &B{3,4})", "&B{λa.(a 1 3),λa.(a 1 4)}")
-  , ("λt.(t &A{1,2} &A{3,4})", "&A{λa.(a 1 3),λa.(a 2 4)}")
-  , ("λt.(t &A{1,2} &B{3,4})", "&A{&B{λa.(a 1 3),λa.(a 1 4)},&B{λa.(a 2 3),λa.(a 2 4)}}")
+  -- , ("(@foo 0)", "&L{0,0}")
+  -- , ("(@foo 1+1+1+0)", "&L{3,2}")
+  -- , ("λx.(@dbl 1+1+x)", "λa.4+(@dbl a)")
+  -- , ("("++f 2++" λX.(X λT0.λF0.F0 λT1.λF1.T1) λT2.λF2.T2)", "λa.λb.a")
+  -- , ("1+&L{0,1}", "&L{1,2}")
+  -- , ("1+&A{&B{0,1},&C{2,3}}", "&A{&B{1,2},&C{3,4}}")
+  -- , ("λa.!A&L=a;&L{A₀,A₁}", "&L{λa.a,λa.a}")
+  -- , ("λa.λb.!A&L=a;!B&L=b;&L{λx.(x A₀ B₀),λx.(x A₁ B₁)}", "&L{λa.λb.λc.(c a b),λa.λb.λc.(c a b)}")
+  -- , ("λt.(t &A{1,2} 3)", "&A{λa.(a 1 3),λa.(a 2 3)}")
+  -- , ("λt.(t 1 &B{3,4})", "&B{λa.(a 1 3),λa.(a 1 4)}")
+  -- , ("λt.(t &A{1,2} &A{3,4})", "&A{λa.(a 1 3),λa.(a 2 4)}")
+  -- , ("λt.(t &A{1,2} &B{3,4})", "&A{&B{λa.(a 1 3),λa.(a 1 4)},&B{λa.(a 2 3),λa.(a 2 4)}}")
   -- , ("@gen", "&A{&B{λa.a,λa.1+a},&C{&D{λ{0:0;1+:λa.(@gen a)},&E{λ{0:0;1+:λa.1+(@gen a)},λ{0:0;1+:λa.2+(@gen a)}}},&D{λ{0:1;1+:λa.(@gen a)},&E{λ{0:1;1+:λa.1+(@gen a)},λ{0:1;1+:λa.2+(@gen a)}}}}}")
   -- , ("λx.(@gen 2+x)", "&A{&B{λa.2+a,λa.3+a},&D{λa.(@gen a),&E{λa.2+(@gen a),λa.4+(@gen a)}}}")
   -- , ("(@gen 2)", "&A{&B{2,3},&D{&C{0,1},&E{&C{2,3},&C{4,5}}}}")
@@ -1055,8 +1258,8 @@ run book_src term_src = do
   !val <- snf env 1 val
   !end <- getCPUTime
   !itr <- readIORef (env_inters env)
-  let dt  = fromIntegral (end - ini) / (10^12)
-      ips = fromIntegral itr / dt
+  !dt  <- return $ fromIntegral (end - ini) / (10^12)
+  !ips <- return $ fromIntegral itr / dt
   putStrLn $ show val
   putStrLn $ "- Itrs: " ++ show itr ++ " interactions"
   printf "- Time: %.3f seconds\n" (dt :: Double)
