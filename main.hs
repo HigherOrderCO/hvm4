@@ -639,7 +639,7 @@ clone_ref_subst e l m = go (IM.toList m) IM.empty IM.empty where
 -- =====
 
 semi_new :: Name -> Semi
-semi_new k = Semi 0 (\_ -> Ref k)
+semi_new k = Semi 0 (\_ -> Nam ("@" ++ (int_to_name k)))
 
 semi_app :: Semi -> Term -> Semi
 semi_app (Semi n f) x = Semi n (\hs -> App (f hs) x)
@@ -1007,11 +1007,17 @@ wnf_ref_frk e sp k a b s m p =
 wnf_ref_del :: Env -> Semi -> Stack -> Subs -> Path -> IO Term
 wnf_ref_del _e _sp _s _m _p = return Era
 
+-- wnf_ref_ret :: Env -> Semi -> Term -> Stack -> Subs -> Path -> IO Term
+-- wnf_ref_ret e _sp t s m p = do
+  -- t <- alloc e m t
+  -- t <- wnf_unwind e s t
+  -- wnf_ref_wrap e t p
+
 wnf_ref_ret :: Env -> Semi -> Term -> Stack -> Subs -> Path -> IO Term
 wnf_ref_ret e _sp t s m p = do
-  t <- alloc e m t
-  t <- wnf_unwind e s t
-  wnf_ref_wrap e t p
+ t <- alloc e m t
+ t <- wnf e s t
+ wnf_ref_wrap e t p
 
 lookup_path :: Lab -> Path -> Maybe Int
 lookup_path k = go Nothing where
@@ -1278,33 +1284,33 @@ f n = "λf." ++ dups ++ final where
 tests :: [(String,String)]
 tests =
   [ ("0", "0")
-  -- , ("(@not 0)", "1")
-  -- , ("(@not 1+0)", "0")
-  -- , ("!F&L=@id;!G&L=F₀;λx.(G₁ x)", "λa.a")
-  -- , ("(@and 0 0)", "0")
-  -- , ("(@and &L{0,1+0} 1+0)", "&L{0,1}")
-  -- , ("(@and &L{1+0,0} 1+0)", "&L{1,0}")
-  -- , ("(@and 1+0 &L{0,1+0})", "&L{0,1}")
-  -- , ("(@and 1+0 &L{1+0,0})", "&L{1,0}")
-  -- , ("λx.(@and 0 x)", "λa.(@and 0 a)")
-  -- , ("λx.(@and x 0)", "λa.(@and a 0)")
-  -- , ("(@dup 3)", "λa.(a 3 3)")
-  -- , ("λk.(@dup k)", "λa.λb.(b a a)")
+  , ("(@not 0)", "1")
+  , ("(@not 1+0)", "0")
+  , ("!F&L=@id;!G&L=F₀;λx.(G₁ x)", "λa.a")
+  , ("(@and 0 0)", "0")
+  , ("(@and &L{0,1+0} 1+0)", "&L{0,1}")
+  , ("(@and &L{1+0,0} 1+0)", "&L{1,0}")
+  , ("(@and 1+0 &L{0,1+0})", "&L{0,1}")
+  , ("(@and 1+0 &L{1+0,0})", "&L{1,0}")
+  , ("λx.(@and 0 x)", "λa.(@and 0 a)")
+  , ("λx.(@and x 0)", "λa.(@and a 0)")
+  , ("(@dup 3)", "λa.(a 3 3)")
+  , ("λk.(@dup k)", "λa.λb.(b a a)")
   , ("(@sum 1+1+1+0)", "6")
-  -- , ("λx.(@sum 1+1+1+x)", "λa.3+(@add a 2+(@add a 1+(@add a (@sum a))))")
-  -- , ("(@foo 0)", "&L{0,0}")
-  -- , ("(@foo 3)", "&L{3,2}")
-  -- , ("(@dbl 3)", "6")
-  -- , ("λx.(@dbl 2+x)", "λa.4+(@dbl a)")
-  -- , ("("++f 2++" λX.(X λT0.λF0.F0 λT1.λF1.T1) λT2.λF2.T2)", "λa.λb.a")
-  -- , ("1+&L{0,1}", "&L{1,2}")
-  -- , ("1+&A{&B{0,1},&C{2,3}}", "&A{&B{1,2},&C{3,4}}")
-  -- , ("λa.!A&L=a;&L{A₀,A₁}", "&L{λa.a,λa.a}")
-  -- , ("λa.λb.!A&L=a;!B&L=b;&L{λx.(x A₀ B₀),λx.(x A₁ B₁)}", "&L{λa.λb.λc.(c a b),λa.λb.λc.(c a b)}")
-  -- , ("λt.(t &A{1,2} 3)", "&A{λa.(a 1 3),λa.(a 2 3)}")
-  -- , ("λt.(t 1 &B{3,4})", "&B{λa.(a 1 3),λa.(a 1 4)}")
-  -- , ("λt.(t &A{1,2} &A{3,4})", "&A{λa.(a 1 3),λa.(a 2 4)}")
-  -- , ("λt.(t &A{1,2} &B{3,4})", "&A{&B{λa.(a 1 3),λa.(a 1 4)},&B{λa.(a 2 3),λa.(a 2 4)}}")
+  , ("λx.(@sum 1+1+1+x)", "λa.3+(@add a 2+(@add a 1+(@add a (@sum a))))")
+  , ("(@foo 0)", "&L{0,0}")
+  , ("(@foo 3)", "&L{3,2}")
+  , ("(@dbl 3)", "6")
+  , ("λx.(@dbl 2+x)", "λa.4+(@dbl a)")
+  , ("("++f 2++" λX.(X λT0.λF0.F0 λT1.λF1.T1) λT2.λF2.T2)", "λa.λb.a")
+  , ("1+&L{0,1}", "&L{1,2}")
+  , ("1+&A{&B{0,1},&C{2,3}}", "&A{&B{1,2},&C{3,4}}")
+  , ("λa.!A&L=a;&L{A₀,A₁}", "&L{λa.a,λa.a}")
+  , ("λa.λb.!A&L=a;!B&L=b;&L{λx.(x A₀ B₀),λx.(x A₁ B₁)}", "&L{λa.λb.λc.(c a b),λa.λb.λc.(c a b)}")
+  , ("λt.(t &A{1,2} 3)", "&A{λa.(a 1 3),λa.(a 2 3)}")
+  , ("λt.(t 1 &B{3,4})", "&B{λa.(a 1 3),λa.(a 1 4)}")
+  , ("λt.(t &A{1,2} &A{3,4})", "&A{λa.(a 1 3),λa.(a 2 4)}")
+  , ("λt.(t &A{1,2} &B{3,4})", "&A{&B{λa.(a 1 3),λa.(a 1 4)},&B{λa.(a 2 3),λa.(a 2 4)}}")
   -- , ("@gen", "&A{&B{λa.a,λa.1+a},&C{&D{λ{0:0;1+:λa.(@gen a)},&E{λ{0:0;1+:λa.1+(@gen a)},λ{0:0;1+:λa.2+(@gen a)}}},&D{λ{0:1;1+:λa.(@gen a)},&E{λ{0:1;1+:λa.1+(@gen a)},λ{0:1;1+:λa.2+(@gen a)}}}}}")
   -- , ("λx.(@gen 2+x)", "&A{&B{λa.2+a,λa.3+a},&D{λa.(@gen a),&E{λa.2+(@gen a),λa.4+(@gen a)}}}")
   -- , ("(@gen 2)", "&A{&B{2,3},&D{&C{0,1},&E{&C{2,3},&C{4,5}}}}")
@@ -1313,14 +1319,14 @@ tests =
 book :: String
 book = unlines
   [ ""
-  -- , "@id  = Λa.a"
-  -- , "@dup = Λx. λt. (t x x)"
-  -- , "@not = Λ{0:1+0;1+:Λp.0}"
-  -- , "@dbl = Λ{0:0;1+:Λp.2+(@dbl p)}"
-  -- , "@and = Λ{0:Λ{0:0;1+:Λp.0};1+:Λp.Λ{0:0;1+:Λp.1+0}}"
+  , "@id  = Λa.a"
+  , "@dup = Λx. λt. (t x x)"
+  , "@not = Λ{0:1+0;1+:Λp.0}"
+  , "@dbl = Λ{0:0;1+:Λp.2+(@dbl p)}"
+  , "@and = Λ{0:Λ{0:0;1+:Λp.0};1+:Λp.Λ{0:0;1+:Λp.1+0}}"
   , "@add = Λ{0:Λb.b;1+:Λa.Λb.1+(@add a b)}"
-  , "@sum = Λ{0:0;1+:Λp.(@add p (@sum p))}"
-  -- , "@foo = &L{Λx.x,Λ{0:0;1+:Λp.p}}"
+  , "@sum = Λ{0:0;1+:Λp.1+(@add p (@sum p))}"
+  , "@foo = &L{Λx.x,Λ{0:0;1+:Λp.p}}"
   -- , "@gen = !F&A=@gen &A{Λx.!X&B=x;&B{X₀,1+X₁},Λ{0:&C{0,1};1+:Λp.!G&D=F₁;!P&D=p;&D{(G₀ P₀),!H&E=G₁;!Q&E=P₁;1+&E{(H₀ Q₀),1+(H₁ Q₁)}}}}"
   ]
 
