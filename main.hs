@@ -42,12 +42,16 @@ data Term
   | Dry !Term !Term
   deriving (Eq)
 
+-- Funcs
+-- -----
+-- (note: constructors shouldn't be prefixed with "F")
+
 data Func
-  = FAbs !Name !Func
-  | FSwi !Func !Func
-  | FFrk !Name !Func !Func
-  | FDel
-  | FRet !Term
+  = Abs !Name !Func
+  | Swi !Func !Func
+  | Frk !Lab !Func !Func
+  | Del
+  | Ret !Term
   deriving (Eq, Show)
 
 data Kind
@@ -58,12 +62,7 @@ data Kind
 
 data Book = Book (M.Map Name Func)
 
-data Dir
-  = D0
-  | D1
-  deriving (Eq, Show)
-
-type Path = [(Lab, Dir)]
+type Path = [(Lab, Int)]
 type Subs = IM.IntMap Term
 
 data Env = Env
@@ -74,10 +73,10 @@ data Env = Env
   , env_dup_map :: !(IORef (IM.IntMap (Lab, Term)))
   }
 
-data Spine = Spine Int ([Term] -> Term)
+data Spine = Spine !Int !([Term] -> Term)
 
 instance Show Spine where
-  show (Spine k f) = show (f (replicate k (Nam "_")))
+  show sp = show (spine_term sp)
 
 data Frame
   = FApp !Term
@@ -122,11 +121,11 @@ instance Show Book where
   show (Book m) = unlines [ "@" ++ int_to_name k ++ " = " ++ show_func ct | (k, ct) <- M.toList m ]
 
 show_func :: Func -> String
-show_func (FAbs k f)   = "Λ" ++ int_to_name k ++ "." ++ show_func f
-show_func (FSwi z s)   = "Λ{0:" ++ show_func z ++ ";1+:" ++ show_func s ++ "}"
-show_func (FFrk k a b) = "&" ++ int_to_name k ++ "{" ++ show_func a ++ "," ++ show_func b ++ "}"
-show_func FDel         = "&{}"
-show_func (FRet t)     = show t
+show_func (Abs k f)   = "Λ" ++ int_to_name k ++ "." ++ show_func f
+show_func (Swi z s)   = "Λ{0:" ++ show_func z ++ ";1+:" ++ show_func s ++ "}"
+show_func (Frk k a b) = "&" ++ int_to_name k ++ "{" ++ show_func a ++ "," ++ show_func b ++ "}"
+show_func Del         = "&{}"
+show_func (Ret t)     = show t
 
 -- Name Encoding/Decoding
 -- ======================
@@ -138,14 +137,14 @@ alphabet_first :: String
 alphabet_first = filter (`notElem` "_0123456789") alphabet
 
 name_to_int :: String -> Int
-name_to_int = foldl' (\acc c -> (acc `shiftL` 6) + idx c) 0
-  where idx c = maybe (error "bad name char") id (elemIndex c alphabet)
+name_to_int = foldl' (\acc c -> (acc `shiftL` 6) + idx c) 0 where
+  idx c = maybe (error "bad name char") id (elemIndex c alphabet)
 
 int_to_name :: Int -> String
 int_to_name 0 = "_"
-int_to_name n = reverse (go n)
-  where go 0 = ""
-        go m = let (q,r) = m `divMod` 64 in alphabet !! r : go q
+int_to_name n = go n [] where
+  go 0 acc = acc
+  go m acc = let (q, r) = m `divMod` 64 in go q (alphabet !! r : acc)
 
 -- Parsing
 -- =======
@@ -153,11 +152,14 @@ int_to_name n = reverse (go n)
 lexeme :: ReadP a -> ReadP a
 lexeme p = skipSpaces *> p
 
+parse_number :: ReadP Int
+parse_number = read <$> munch1 isDigit
+
 parse_nam :: ReadP String
 parse_nam = lexeme $ do
-  head <- satisfy (`elem` alphabet_first)
-  tail <- munch (`elem` alphabet)
-  return (head : tail)
+  h <- satisfy (`elem` alphabet_first)
+  t <- munch (`elem` alphabet)
+  return (h : t)
 
 parse_term :: ReadP Term
 parse_term = parse_term_base
@@ -181,8 +183,8 @@ parse_term_base = lexeme $ choice
 parse_app :: ReadP Term
 parse_app = between (lexeme (char '(')) (lexeme (char ')')) $ do
   ts <- many1 parse_term
-  let (t:rest) = ts
-  return (foldl' App t rest)
+  let (f:args) = ts
+  return (foldl' App f args)
 
 parse_lam :: ReadP Term
 parse_lam = do
@@ -250,9 +252,6 @@ parse_num = do
   value <- parse_number
   return (iterate Suc Zer !! value)
 
-parse_number :: ReadP Int
-parse_number = read <$> munch1 isDigit
-
 parse_var :: ReadP Term
 parse_var = do
   k <- parse_nam
@@ -264,26 +263,27 @@ parse_var = do
     ]
 
 -- Func Parsing
+-- ------------
 
 parse_func :: ReadP Func
 parse_func = lexeme $ choice
-  [ parse_fabs
-  , parse_fswi
-  , parse_fdel
-  , parse_ffrk
-  , FRet <$> parse_term
+  [ parse_abs
+  , parse_swi
+  , parse_del
+  , parse_frk
+  , Ret <$> parse_term
   ]
 
-parse_fabs :: ReadP Func
-parse_fabs = do
+parse_abs :: ReadP Func
+parse_abs = do
   lexeme (char 'Λ')
   k <- parse_nam
   lexeme (char '.')
   body <- parse_func
-  return (FAbs (name_to_int k) body)
+  return (Abs (name_to_int k) body)
 
-parse_fswi :: ReadP Func
-parse_fswi = do
+parse_swi :: ReadP Func
+parse_swi = do
   lexeme (char 'Λ')
   between (lexeme (char '{')) (lexeme (char '}')) $ do
     lexeme (string "0:")
@@ -291,20 +291,20 @@ parse_fswi = do
     optional (lexeme (char ';'))
     lexeme (string "1+:")
     s <- parse_func
-    return (FSwi z s)
+    return (Swi z s)
 
-parse_fdel :: ReadP Func
-parse_fdel = lexeme (string "&{}") >> return FDel
+parse_del :: ReadP Func
+parse_del = lexeme (string "&{}") >> return Del
 
-parse_ffrk :: ReadP Func
-parse_ffrk = do
+parse_frk :: ReadP Func
+parse_frk = do
   lexeme (char '&')
   l <- parse_nam
   between (lexeme (char '{')) (lexeme (char '}')) $ do
     a <- parse_func
     optional (lexeme (char ','))
     b <- parse_func
-    return (FFrk (name_to_int l) a b)
+    return (Frk (name_to_int l) a b)
 
 parse_book_entry :: ReadP (Name, Func)
 parse_book_entry = do
@@ -358,8 +358,7 @@ taker :: IORef (IM.IntMap a) -> Int -> IO (Maybe a)
 taker ref k = do
   !m <- readIORef ref
   case IM.lookup k m of
-    Nothing -> do
-      return Nothing
+    Nothing -> return Nothing
     Just v  -> do
       writeIORef ref (IM.delete k m)
       return (Just v)
@@ -371,7 +370,8 @@ take_sub :: Kind -> Env -> Name -> IO (Maybe Term)
 take_sub ki e k = taker (env_sub_map e) (k `shiftL` 2 + fromEnum ki)
 
 subst :: Kind -> Env -> Name -> Term -> IO ()
-subst s e k v = modifyIORef' (env_sub_map e) (IM.insert (k `shiftL` 2 + fromEnum s) v)
+subst ki e k v =
+  modifyIORef' (env_sub_map e) (IM.insert (k `shiftL` 2 + fromEnum ki) v)
 
 duply :: Env -> Name -> Lab -> Term -> IO ()
 duply e k l v = modifyIORef' (env_dup_map e) (IM.insert k (l, v))
@@ -380,29 +380,78 @@ clone :: Env -> Lab -> Term -> IO (Term, Term)
 clone e l v = do
   k <- fresh e
   duply e k l v
-  return $ (Dp0 k , Dp1 k)
+  return (Dp0 k, Dp1 k)
 
 clones :: Env -> Lab -> [Term] -> IO ([Term],[Term])
-clones e l []       = return $ ([],[])
+clones _ _ []       = return ([],[])
 clones e l (x : xs) = do
   (x0  , x1 ) <- clone  e l x
   (xs0 , xs1) <- clones e l xs
-  return $ (x0 : xs0 , x1 : xs1)
+  return (x0 : xs0 , x1 : xs1)
+
+-- Cloning for Ref Logic
+-- ---------------------
+
+clone_ref_stack :: Env -> Lab -> Stack -> IO (Stack, Stack)
+clone_ref_stack _ _ [] = return ([], [])
+clone_ref_stack e l (frame : s) = do
+  (f0, f1) <- case frame of
+    FApp x -> do
+      (x0, x1) <- clone e l x
+      return (FApp x0, FApp x1)
+    FDp0 k l' -> do
+      (k0, k1) <- clone_ref_stack_dup e k l
+      return (FDp0 k0 l', FDp0 k1 l')
+    FDp1 k l' -> do
+      (k0, k1) <- clone_ref_stack_dup e k l
+      return (FDp1 k0 l', FDp1 k1 l')
+  (s0, s1) <- clone_ref_stack e l s
+  return (f0 : s0, f1 : s1)
+
+clone_ref_stack_dup :: Env -> Name -> Lab -> IO (Name, Name)
+clone_ref_stack_dup e k l = do
+  k0 <- fresh e
+  k1 <- fresh e
+  subst DP0 e k (Sup l (Dp0 k0) (Dp0 k1))
+  subst DP1 e k (Sup l (Dp1 k0) (Dp1 k1))
+  return (k0, k1)
+
+clone_ref_subst :: Env -> Lab -> Subs -> IO (Subs, Subs)
+clone_ref_subst e l m = go (IM.toList m) IM.empty IM.empty where
+  go []            m0 m1 = return (m0, m1)
+  go ((k,v):rest)  m0 m1 = do
+    (v0, v1) <- clone e l v
+    go rest (IM.insert k v0 m0) (IM.insert k v1 m1)
 
 -- Spine
 -- =====
 
+-- Only expose spine_new, spine_app and spine_ctr for extension.
+-- Other helpers are for completion / inspection.
+
 spine_new :: Name -> Spine
 spine_new k = Spine 0 (\_ -> Ref k)
 
-spine_add_arg :: Spine -> Term -> Spine
-spine_add_arg (Spine k f) x = Spine k (\ hs -> App (f hs) x)
+spine_app :: Spine -> Term -> Spine
+spine_app (Spine n f) x = Spine n (\hs -> App (f hs) x)
 
-spine_add_suc :: Spine -> Spine
-spine_add_suc (Spine k f) = Spine (k+1) (\ (h:hs) -> App (f hs) (Suc h))
+spine_ctr :: Spine -> Spine
+spine_ctr (Spine n f) = Spine (n + 1) (\(h:hs) -> App (f hs) (Suc h))
 
-spine_term_val :: Spine -> Term
-spine_term_val (Spine k f) = f (replicate k (Nam "_"))
+spine_term :: Spine -> Term
+spine_term (Spine n f) = f (replicate n (Nam "_"))
+
+-- Kind / Dir utilities
+-- ====================
+
+kind_term :: Kind -> Name -> Term
+kind_term VAR k = Var k
+kind_term DP0 k = Dp0 k
+kind_term DP1 k = Dp1 k
+
+dp_term :: Int -> Name -> Term
+dp_term 0 k = Dp0 k
+dp_term _ k = Dp1 k
 
 -- WNF: Weak Normal Form
 -- =====================
@@ -457,35 +506,49 @@ wnf_enter e s f = do
 -- -----------
 
 wnf_unwind :: Env -> Stack -> Term -> IO Term
-wnf_unwind e []    v = return v
-wnf_unwind e (x:s) v = do
+wnf_unwind _ []    v = return v
+wnf_unwind e (fr:s) v = do
   when debug $ putStrLn $ ">> wnf_unwind           : " ++ show v
-  case x of
-    FApp x -> case v of
-      Era          -> wnf_app_era e s x
-      Sup fl fa fb -> wnf_app_sup e s fl fa fb x
-      Set          -> wnf_app_set e s x
-      All va vb    -> wnf_app_all e s va vb x
-      Lam fk ff    -> wnf_app_lam e s fk ff x
-      Nat          -> wnf_app_nat e s x
-      Zer          -> wnf_app_zer e s x
-      Suc vp       -> wnf_app_suc e s vp x
-      Nam fk       -> wnf_app_nam e s fk x
-      Dry ff fx    -> wnf_app_dry e s ff fx x
-      f            -> wnf_unwind e s (App f x)
-    _ -> case v of
-      Era          -> wnf_dpn_era e s k l          r
-      Sup vl va vb -> wnf_dpn_sup e s k l vl va vb r
-      Set          -> wnf_dpn_set e s k l          r
-      All va vb    -> wnf_dpn_all e s k l va vb    r
-      Lam vk vf    -> wnf_dpn_lam e s k l vk vf    r
-      Nat          -> wnf_dpn_nat e s k l          r
-      Zer          -> wnf_dpn_zer e s k l          r
-      Suc vp       -> wnf_dpn_suc e s k l vp       r
-      Nam vk       -> wnf_dpn_nam e s k l vk       r
-      Dry vf vx    -> wnf_dpn_dry e s k l vf vx    r
-      val          -> wnf_unwind  e s (Dup k l val r)
-      where (k,l,r) = case x of { FDp0 k l -> (k,l,Dp0 k) ; FDp1 k l -> (k,l,Dp1 k) }
+  case fr of
+    FApp x ->
+      case v of
+        Era          -> wnf_app_era e s x
+        Sup fl fa fb -> wnf_app_sup e s fl fa fb x
+        Set          -> wnf_app_set e s x
+        All va vb    -> wnf_app_all e s va vb x
+        Lam fk ff    -> wnf_app_lam e s fk ff x
+        Nat          -> wnf_app_nat e s x
+        Zer          -> wnf_app_zer e s x
+        Suc vp       -> wnf_app_suc e s vp x
+        Nam fk       -> wnf_app_nam e s fk x
+        Dry ff fx    -> wnf_app_dry e s ff fx x
+        f'           -> wnf_unwind e s (App f' x)
+    FDp0 k l ->
+      case v of
+        Era          -> wnf_dpn_era 0 e s k l
+        Sup vl va vb -> wnf_dpn_sup 0 e s k l vl va vb
+        Set          -> wnf_dpn_set 0 e s k l
+        All va vb    -> wnf_dpn_all 0 e s k l va vb
+        Lam vk vf    -> wnf_dpn_lam 0 e s k l vk vf
+        Nat          -> wnf_dpn_nat 0 e s k l
+        Zer          -> wnf_dpn_zer 0 e s k l
+        Suc vp       -> wnf_dpn_suc 0 e s k l vp
+        Nam vk       -> wnf_dpn_nam 0 e s k l vk
+        Dry vf vx    -> wnf_dpn_dry 0 e s k l vf vx
+        val          -> wnf_unwind e s (Dup k l val (Dp0 k))
+    FDp1 k l ->
+      case v of
+        Era          -> wnf_dpn_era 1 e s k l
+        Sup vl va vb -> wnf_dpn_sup 1 e s k l vl va vb
+        Set          -> wnf_dpn_set 1 e s k l
+        All va vb    -> wnf_dpn_all 1 e s k l va vb
+        Lam vk vf    -> wnf_dpn_lam 1 e s k l vk vf
+        Nat          -> wnf_dpn_nat 1 e s k l
+        Zer          -> wnf_dpn_zer 1 e s k l
+        Suc vp       -> wnf_dpn_suc 1 e s k l vp
+        Nam vk       -> wnf_dpn_nam 1 e s k l vk
+        Dry vf vx    -> wnf_dpn_dry 1 e s k l vf vx
+        val          -> wnf_unwind e s (Dup k l val (Dp1 k))
 
 -- WNF: Interactions
 -- -----------------
@@ -496,10 +559,7 @@ wnf_sub ki e s k = do
   mt <- take_sub ki e k
   case mt of
     Just t  -> wnf e s t
-    Nothing -> wnf_unwind e s $ var ki
-      where var VAR = Var k
-            var DP0 = Dp0 k
-            var DP1 = Dp1 k
+    Nothing -> wnf_unwind e s (kind_term ki k)
 
 wnf_app_era :: Env -> Stack -> Term -> IO Term
 wnf_app_era e s v = do
@@ -508,27 +568,27 @@ wnf_app_era e s v = do
   wnf e s Era
 
 wnf_app_set :: Env -> Stack -> Term -> IO Term
-wnf_app_set e s v = do
+wnf_app_set e _s v = do
   when debug $ putStrLn $ "## wnf_app_set          : " ++ show (App Set v)
   error "app-set"
 
 wnf_app_all :: Env -> Stack -> Term -> Term -> Term -> IO Term
-wnf_app_all e s va vb v = do
+wnf_app_all e _s va vb v = do
   when debug $ putStrLn $ "## wnf_app_all          : " ++ show (App (All va vb) v)
   error "app-all"
 
 wnf_app_nat :: Env -> Stack -> Term -> IO Term
-wnf_app_nat e s v = do
+wnf_app_nat e _s v = do
   when debug $ putStrLn $ "## wnf_app_nat          : " ++ show (App Nat v)
   error "app-nat"
 
 wnf_app_zer :: Env -> Stack -> Term -> IO Term
-wnf_app_zer e s v = do
+wnf_app_zer e _s v = do
   when debug $ putStrLn $ "## wnf_app_zer          : " ++ show (App Zer v)
   error "app-zer"
 
 wnf_app_suc :: Env -> Stack -> Term -> Term -> IO Term
-wnf_app_suc e s vp v = do
+wnf_app_suc e _s vp v = do
   when debug $ putStrLn $ "## wnf_app_suc          : " ++ show (App (Suc vp) v)
   error "app-suc"
 
@@ -556,23 +616,26 @@ wnf_app_sup e s fL fa fb v = do
   (x0,x1) <- clone e fL v
   wnf e s (Sup fL (App fa x0) (App fb x1))
 
-wnf_dpn_era :: Env -> Stack -> Name -> Lab -> Term -> IO Term
-wnf_dpn_era e s k _ t = do
+wnf_dpn_era :: Int -> Env -> Stack -> Name -> Lab -> IO Term
+wnf_dpn_era d e s k _ = do
+  let t = dp_term d k
   when debug $ putStrLn $ "## wnf_dpn_era          : " ++ show (Dup k (name_to_int "_") Era t)
   inc_inters e
   subst DP0 e k Era
   subst DP1 e k Era
   wnf e s t
 
-wnf_dpn_sup :: Env -> Stack -> Name -> Lab -> Lab -> Term -> Term -> Term -> IO Term
-wnf_dpn_sup e s k l vl va vb t
+wnf_dpn_sup :: Int -> Env -> Stack -> Name -> Lab -> Lab -> Term -> Term -> IO Term
+wnf_dpn_sup d e s k l vl va vb
   | l == vl = do
+      let t = dp_term d k
       when debug $ putStrLn $ "## wnf_dpn_sup_same     : " ++ show (Dup k l (Sup vl va vb) t)
       inc_inters e
       subst DP0 e k va
       subst DP1 e k vb
       wnf e s t
   | otherwise = do
+      let t = dp_term d k
       when debug $ putStrLn $ "## wnf_dpn_sup_diff     : " ++ show (Dup k l (Sup vl va vb) t)
       inc_inters e
       (a0,a1) <- clone e l va
@@ -581,16 +644,18 @@ wnf_dpn_sup e s k l vl va vb t
       subst DP1 e k (Sup vl a1 b1)
       wnf e s t
 
-wnf_dpn_set :: Env -> Stack -> Name -> Lab -> Term -> IO Term
-wnf_dpn_set e s k _ t = do
+wnf_dpn_set :: Int -> Env -> Stack -> Name -> Lab -> IO Term
+wnf_dpn_set d e s k _ = do
+  let t = dp_term d k
   when debug $ putStrLn $ "## wnf_dpn_set          : " ++ show (Dup k (name_to_int "_") Set t)
   inc_inters e
   subst DP0 e k Set
   subst DP1 e k Set
   wnf e s t
 
-wnf_dpn_all :: Env -> Stack -> Name -> Lab -> Term -> Term -> Term -> IO Term
-wnf_dpn_all e s k l va vb t = do
+wnf_dpn_all :: Int -> Env -> Stack -> Name -> Lab -> Term -> Term -> IO Term
+wnf_dpn_all d e s k l va vb = do
+  let t = dp_term d k
   when debug $ putStrLn $ "## wnf_dpn_all          : " ++ show (Dup k l (All va vb) t)
   inc_inters e
   (a0,a1) <- clone e l va
@@ -599,8 +664,9 @@ wnf_dpn_all e s k l va vb t = do
   subst DP1 e k (All a1 b1)
   wnf e s t
 
-wnf_dpn_lam :: Env -> Stack -> Name -> Lab -> Name -> Term -> Term -> IO Term
-wnf_dpn_lam e s k l vk vf t = do
+wnf_dpn_lam :: Int -> Env -> Stack -> Name -> Lab -> Name -> Term -> IO Term
+wnf_dpn_lam d e s k l vk vf = do
+  let t = dp_term d k
   when debug $ putStrLn $ "## wnf_dpn_lam          : " ++ show (Dup k l (Lam vk vf) t)
   inc_inters e
   x0      <- fresh e
@@ -611,24 +677,27 @@ wnf_dpn_lam e s k l vk vf t = do
   subst VAR e vk (Sup l (Var x0) (Var x1))
   wnf e s t
 
-wnf_dpn_nat :: Env -> Stack -> Name -> Lab -> Term -> IO Term
-wnf_dpn_nat e s k _ t = do
+wnf_dpn_nat :: Int -> Env -> Stack -> Name -> Lab -> IO Term
+wnf_dpn_nat d e s k _ = do
+  let t = dp_term d k
   when debug $ putStrLn $ "## wnf_dpn_nat          : " ++ show (Dup k (name_to_int "_") Nat t)
   inc_inters e
   subst DP0 e k Nat
   subst DP1 e k Nat
   wnf e s t
 
-wnf_dpn_zer :: Env -> Stack -> Name -> Lab -> Term -> IO Term
-wnf_dpn_zer e s k _ t = do
+wnf_dpn_zer :: Int -> Env -> Stack -> Name -> Lab -> IO Term
+wnf_dpn_zer d e s k _ = do
+  let t = dp_term d k
   when debug $ putStrLn $ "## wnf_dpn_zer          : " ++ show (Dup k (name_to_int "_") Zer t)
   inc_inters e
   subst DP0 e k Zer
   subst DP1 e k Zer
   wnf e s t
 
-wnf_dpn_suc :: Env -> Stack -> Name -> Lab -> Term -> Term -> IO Term
-wnf_dpn_suc e s k l p t = do
+wnf_dpn_suc :: Int -> Env -> Stack -> Name -> Lab -> Term -> IO Term
+wnf_dpn_suc d e s k l p = do
+  let t = dp_term d k
   when debug $ putStrLn $ "## wnf_dpn_suc          : " ++ show (Dup k l (Suc p) t)
   inc_inters e
   (n0,n1) <- clone e l p
@@ -636,16 +705,18 @@ wnf_dpn_suc e s k l p t = do
   subst DP1 e k (Suc n1)
   wnf e s t
 
-wnf_dpn_nam :: Env -> Stack -> Name -> Lab -> String -> Term -> IO Term
-wnf_dpn_nam e s k _ n t = do
+wnf_dpn_nam :: Int -> Env -> Stack -> Name -> Lab -> String -> IO Term
+wnf_dpn_nam d e s k _ n = do
+  let t = dp_term d k
   when debug $ putStrLn $ "## wnf_dpn_nam          : " ++ show (Dup k (name_to_int "_") (Nam n) t)
   inc_inters e
   subst DP0 e k (Nam n)
   subst DP1 e k (Nam n)
   wnf e s t
 
-wnf_dpn_dry :: Env -> Stack -> Name -> Lab -> Term -> Term -> Term -> IO Term
-wnf_dpn_dry e s k l vf vx t = do
+wnf_dpn_dry :: Int -> Env -> Stack -> Name -> Lab -> Term -> Term -> IO Term
+wnf_dpn_dry d e s k l vf vx = do
+  let t = dp_term d k
   when debug $ putStrLn $ "## wnf_dpn_dry          : " ++ show (Dup k l (Dry vf vx) t)
   inc_inters e
   (f0,f1) <- clone e l vf
@@ -658,182 +729,163 @@ wnf_dpn_dry e s k l vf vx t = do
 -- --------------
 
 wnf_ref_apply :: Env -> Spine -> Func -> Stack -> Subs -> Path -> IO Term
-wnf_ref_apply e f func s m p = do
-  when debug $ putStrLn $ "## wnf_ref_apply        : " ++ show (spine_term_val f) ++ " " ++ show func
+wnf_ref_apply e sp func s m p = do
+  when debug $ putStrLn $ "## wnf_ref_apply        : " ++ show (spine_term sp) ++ " " ++ show func
   case s of
-    FDp0 k l : s' -> wnf_ref_dp0 e f func s' m p k l
-    FDp1 k l : s' -> wnf_ref_dp1 e f func s' m p k l
+    FDp0 k l : s' -> wnf_ref_dp0 e sp func s' m p k l
+    FDp1 k l : s' -> wnf_ref_dp1 e sp func s' m p k l
     _ -> case func of
-      FAbs k g   -> wnf_ref_fabs e f k g s m p
-      FSwi z sc  -> wnf_ref_fswi e f z sc s m p
-      FFrk k a b -> wnf_ref_ffrk e f k a b s m p
-      FDel       -> wnf_ref_fdel e f s m p
-      FRet t     -> wnf_ref_fret e f t s m p
+      Abs k g   -> wnf_ref_fabs e sp k g s m p
+      Swi z sc  -> wnf_ref_fswi e sp z sc s m p
+      Frk k a b -> wnf_ref_ffrk e sp k a b s m p
+      Del       -> wnf_ref_fdel e sp s m p
+      Ret t     -> wnf_ref_fret e sp t s m p
 
 wnf_ref_dp0 :: Env -> Spine -> Func -> Stack -> Subs -> Path -> Name -> Lab -> IO Term
-wnf_ref_dp0 e f func s m p k l = do
-  wnf_ref_apply e f func s m (p ++ [(l, D0)])
+wnf_ref_dp0 e sp func s m p _k l =
+  wnf_ref_apply e sp func s m (p ++ [(l, 0)])
 
 wnf_ref_dp1 :: Env -> Spine -> Func -> Stack -> Subs -> Path -> Name -> Lab -> IO Term
-wnf_ref_dp1 e f func s m p k l = do
-  wnf_ref_apply e f func s m (p ++ [(l, D1)])
+wnf_ref_dp1 e sp func s m p _k l =
+  wnf_ref_apply e sp func s m (p ++ [(l, 1)])
 
 wnf_ref_fabs :: Env -> Spine -> Name -> Func -> Stack -> Subs -> Path -> IO Term
-wnf_ref_fabs e f k g s m p = case s of
-  FApp a : s' -> do
-    inc_inters e
-    let a' = wnf_ref_bind a p
-    let m' = IM.insert k a' m
-    let f' = spine_add_arg f (Var k)
-    wnf_ref_apply e f' g s' m' p
-  _ -> wnf_ref_stuck e f s m p
+wnf_ref_fabs e sp k g s m p =
+  case s of
+    FApp a : s' -> do
+      inc_inters e
+      let a' = wnf_ref_bind a p
+      let m' = IM.insert k a' m
+      let sp' = spine_app sp (Var k)
+      wnf_ref_apply e sp' g s' m' p
+    _ -> wnf_ref_stuck e sp s m p
 
 wnf_ref_fswi :: Env -> Spine -> Func -> Func -> Stack -> Subs -> Path -> IO Term
-wnf_ref_fswi e f z sc s m p = case s of
-  FApp t : s' -> do
-    t_val <- wnf e [] t
-    case t_val of
-      Zer -> do
-        inc_inters e
-        let f' = spine_add_arg f Zer
-        wnf_ref_apply e f' z s' m p
-      Suc a -> do
-        inc_inters e
-        let f' = spine_add_suc f
-        wnf_ref_apply e f' sc (FApp a : s') m p
-      Sup l a b -> do
-        inc_inters e
-        (s0, s1) <- clone_ref_stack e l s'
-        (m0, m1) <- clone_ref_subst e l m
-        let p0 = p ++ [(l, D0)]
-        let p1 = p ++ [(l, D1)]
-        r0 <- wnf_ref_apply e f (FSwi z sc) (FApp a : s0) m0 p0
-        r1 <- wnf_ref_apply e f (FSwi z sc) (FApp b : s1) m1 p1
-        return (Sup l r0 r1)
-      Era -> do
-        return Era
-      _ -> do
-        wnf_ref_stuck e f (FApp t_val : s') m p
-  _ -> wnf_ref_stuck e f s m p
+wnf_ref_fswi e sp z sc s m p =
+  case s of
+    FApp t : s' -> do
+      t_val <- wnf e [] t
+      case t_val of
+        Zer -> do
+          inc_inters e
+          let sp' = spine_app sp Zer
+          wnf_ref_apply e sp' z s' m p
+        Suc a -> do
+          inc_inters e
+          let sp' = spine_ctr sp
+          wnf_ref_apply e sp' sc (FApp a : s') m p
+        Sup l a b -> do
+          inc_inters e
+          (s0, s1) <- clone_ref_stack e l s'
+          (m0, m1) <- clone_ref_subst e l m
+          r0       <- wnf_ref_apply e sp (Swi z sc) (FApp a : s0) m0 (p ++ [(l, 0)])
+          r1       <- wnf_ref_apply e sp (Swi z sc) (FApp b : s1) m1 (p ++ [(l, 1)])
+          return (Sup l r0 r1)
+        Era -> do
+          return Era
+        _ -> do
+          wnf_ref_stuck e sp (FApp t_val : s') m p
+    _ -> wnf_ref_stuck e sp s m p
 
-wnf_ref_ffrk :: Env -> Spine -> Name -> Func -> Func -> Stack -> Subs -> Path -> IO Term
-wnf_ref_ffrk e f k a b s m p = do
+wnf_ref_ffrk :: Env -> Spine -> Lab -> Func -> Func -> Stack -> Subs -> Path -> IO Term
+wnf_ref_ffrk e sp k a b s m p =
   case lookup_path k p of
-    Just D0 -> do
+    Just 0 -> do
       let p' = remove_path k p
-      wnf_ref_apply e f a s m p'
-    Just D1 -> do
+      wnf_ref_apply e sp a s m p'
+    Just 1 -> do
       let p' = remove_path k p
-      wnf_ref_apply e f b s m p'
+      wnf_ref_apply e sp b s m p'
     Nothing -> do
       (s0, s1) <- clone_ref_stack e k s
       (m0, m1) <- clone_ref_subst e k m
-      r0 <- wnf_ref_apply e f a s0 m0 p
-      r1 <- wnf_ref_apply e f b s1 m1 p
+      r0 <- wnf_ref_apply e sp a s0 m0 p
+      r1 <- wnf_ref_apply e sp b s1 m1 p
       return (Sup k r0 r1)
 
 wnf_ref_fdel :: Env -> Spine -> Stack -> Subs -> Path -> IO Term
-wnf_ref_fdel e f s m p = return Era
+wnf_ref_fdel _e _sp _s _m _p = return Era
 
 wnf_ref_fret :: Env -> Spine -> Term -> Stack -> Subs -> Path -> IO Term
-wnf_ref_fret e f t s m p = do
-  t'  <- wnf_ref_alloc e t m
-  t'' <- wnf_unwind e s t'
-  wnf_ref_wrap e t'' p
-
-lookup_path :: Name -> Path -> Maybe Dir
-lookup_path k p = lookup k (reverse p)
-
-remove_path :: Name -> Path -> Path
-remove_path k p = reverse (remove_one k (reverse p)) where
-  remove_one _ [] = []
-  remove_one k ((l,d):ps)
-    | k == l    = ps
-    | otherwise = (l,d) : remove_one k ps
-
-wnf_ref_stuck :: Env -> Spine -> Stack -> Subs -> Path -> IO Term
-wnf_ref_stuck e f s m p = do
-  t <- wnf_ref_alloc e (spine_term_val f) m
+wnf_ref_fret e _sp t s m p = do
+  t <- alloc e m t
   t <- wnf_unwind e s t
   wnf_ref_wrap e t p
 
--- Cloning for Ref Logic
--- ---------------------
+lookup_path :: Lab -> Path -> Maybe Int
+lookup_path k = go Nothing where
+  go acc [] = acc
+  go acc ((l,d):ps)
+    | k == l    = go (Just d) ps
+    | otherwise = go acc ps
 
-clone_ref_stack :: Env -> Lab -> Stack -> IO (Stack, Stack)
-clone_ref_stack e l [] = return ([], [])
-clone_ref_stack e l (frame : s) = do
-  (f0, f1) <- case frame of
-    FApp x -> do
-      (x0, x1) <- clone e l x
-      return (FApp x0, FApp x1)
-    FDp0 k l' -> do
-      (k0, k1) <- clone_dp_ref e k l
-      return (FDp0 k0 l', FDp0 k1 l')
-    FDp1 k l' -> do
-      (k0, k1) <- clone_dp_ref e k l
-      return (FDp1 k0 l', FDp1 k1 l')
-  (s0, s1) <- clone_ref_stack e l s
-  return (f0 : s0, f1 : s1)
+remove_path :: Lab -> Path -> Path
+remove_path k p = snd (go p) where
+  go [] = (False, [])
+  go ((l,d):ps) =
+    let (removed, ps') = go ps in
+    if removed
+      then (True, (l,d) : ps')
+      else if k == l
+            then (True, ps')
+            else (False, (l,d) : ps')
 
-clone_dp_ref :: Env -> Name -> Lab -> IO (Name, Name)
-clone_dp_ref e k l = do
-  k0 <- fresh e
-  k1 <- fresh e
-  subst DP0 e k (Sup l (Dp0 k0) (Dp0 k1))
-  subst DP1 e k (Sup l (Dp1 k0) (Dp1 k1))
-  return (k0, k1)
-
-clone_ref_subst :: Env -> Lab -> Subs -> IO (Subs, Subs)
-clone_ref_subst e l m = do
-  fmap unzipIntMap $ mapIntMapM (clone e l) m
-
-unzipIntMap :: IM.IntMap (a, b) -> (IM.IntMap a, IM.IntMap b)
-unzipIntMap m = (IM.map fst m, IM.map snd m)
-
-mapIntMapM :: Monad m => (a -> m b) -> IM.IntMap a -> m (IM.IntMap b)
-mapIntMapM f m = fmap IM.fromList $ mapM (\(k,v) -> fmap ((,) k) (f v)) $ IM.toList m
+wnf_ref_stuck :: Env -> Spine -> Stack -> Subs -> Path -> IO Term
+wnf_ref_stuck e sp s m p = do
+  t <- alloc e m (spine_term sp)
+  t <- wnf_unwind e s t
+  wnf_ref_wrap e t p
 
 -- Alloc / Bind / Wrap
 -- -------------------
 
+alloc :: Env -> Subs -> Term -> IO Term
+alloc e subs term = go subs IM.empty term where
+  go :: Subs -> IM.IntMap Name -> Term -> IO Term
+  go s r (Var k) =
+    case IM.lookup k s of
+      Just v  -> return v
+      Nothing -> return (Var (IM.findWithDefault k k r))
+  go _ r (Dp0 k)       = return (Dp0 (IM.findWithDefault k k r))
+  go _ r (Dp1 k)       = return (Dp1 (IM.findWithDefault k k r))
+  go _ _ Era           = return Era
+  go s r (Sup l a b)   = do
+    a' <- go s r a
+    b' <- go s r b
+    return (Sup l a' b')
+  go s r (Dup k l v t) = do
+    k' <- fresh e
+    v' <- go s r v
+    t' <- go s (IM.insert k k' r) t
+    return (Dup k' l v' t')
+  go _ _ Set           = return Set
+  go s r (All a b)     = All <$> go s r a <*> go s r b
+  go s r (Lam k f)     = do
+    k' <- fresh e
+    f' <- go s (IM.insert k k' r) f
+    return (Lam k' f')
+  go s r (App f x)     = App <$> go s r f <*> go s r x
+  go _ _ Nat           = return Nat
+  go _ _ Zer           = return Zer
+  go s r (Suc n)       = Suc <$> go s r n
+  go _ _ (Ref k)       = return (Ref k)
+  go _ _ (Nam x)       = return (Nam x)
+  go s r (Dry f x)     = Dry <$> go s r f <*> go s r x
+
 wnf_ref_bind :: Term -> Path -> Term
-wnf_ref_bind x [] = x
-wnf_ref_bind x ((l, D0):p) = Sup l (wnf_ref_bind x p) Era
-wnf_ref_bind x ((l, D1):p) = Sup l Era (wnf_ref_bind x p)
+wnf_ref_bind x []           = x
+wnf_ref_bind x ((l,0):p)    = Sup l (wnf_ref_bind x p) Era
+wnf_ref_bind x ((l,1):p)    = Sup l Era (wnf_ref_bind x p)
 
 wnf_ref_wrap :: Env -> Term -> Path -> IO Term
-wnf_ref_wrap e t [] = return t
-wnf_ref_wrap e t ((l, d):p) = do
+wnf_ref_wrap _e t []          = return t
+wnf_ref_wrap e  t ((l,d):p) = do
   k <- fresh e
-  t' <- wnf_ref_wrap e t p
+  t <- wnf_ref_wrap e t p
   case d of
-    D0 -> return $ Dup k l t' (Dp0 k)
-    D1 -> return $ Dup k l t' (Dp1 k)
-
-wnf_ref_alloc :: Env -> Term -> Subs -> IO Term
-wnf_ref_alloc e term m = go m term where
-  go m (Var k) = case IM.lookup k m of
-    Just v  -> return v
-    Nothing -> return (Var k)
-  go m (Dp0 k)       = return (Dp0 k)
-  go m (Dp1 k)       = return (Dp1 k)
-  go m Era           = return Era
-  go m (Sup l a b)   = Sup l <$> go m a <*> go m b
-  go m (Dup k l v t) = error "Dup in Book Term not supported in new Ref logic"
-  go m Set           = return Set
-  go m (All a b)     = All <$> go m a <*> go m b
-  go m (Lam k f)     = do
-    k' <- fresh e
-    f' <- go (IM.insert k (Var k') m) f
-    return (Lam k' f')
-  go m (App f x)     = App <$> go m f <*> go m x
-  go m Nat           = return Nat
-  go m Zer           = return Zer
-  go m (Suc n)       = Suc <$> go m n
-  go m (Ref k)       = return (Ref k)
-  go m (Nam k)       = return (Nam k)
-  go m (Dry f x)     = Dry <$> go m f <*> go m x
+    0 -> return (Dup k l t (Dp0 k))
+    1 -> return (Dup k l t (Dp1 k))
+    _ -> error "invalid direction in path"
 
 -- Normalization
 -- =============
@@ -865,10 +917,10 @@ snf e d x = do
       subst VAR e k (Nam (int_to_name d))
       f' <- snf e (d + 1) f
       return $ Lam d f'
-    App f x -> do
+    App f x1 -> do
       f' <- snf e d f
-      x' <- snf e d x
-      return $ App f' x'
+      x'' <- snf e d x1
+      return $ App f' x''
     Nat -> return Nat
     Zer -> return Zer
     Suc p -> do
@@ -876,20 +928,20 @@ snf e d x = do
       return $ Suc p'
     Ref k -> return $ Ref k
     Nam k -> return $ Nam k
-    Dry f x -> do
+    Dry f x1 -> do
       f' <- snf e d f
-      x' <- snf e d x
-      return $ Dry f' x'
+      x'' <- snf e d x1
+      return $ Dry f' x''
 
 -- Collapsing
 -- ==========
 
 col :: Env -> Term -> IO Term
 col e x = do
-  !x <- wnf e [] x
-  case x of
+  !x' <- wnf e [] x
+  case x' of
     Era -> return Era
-    (Sup l a b) -> do
+    Sup l a b -> do
       a' <- col e a
       b' <- col e b
       return $ Sup l a' b'
@@ -900,72 +952,43 @@ col e x = do
       a' <- col e a
       b' <- col e b
       inj e (Lam aV (Lam bV (All (Var aV) (Var bV)))) [a',b']
-    (Lam k f) -> do
+    Lam k f -> do
       fV <- fresh e
       f' <- col e f
       inj e (Lam fV (Lam k (Var fV))) [f']
-    (App f x) -> do
+    App f x1 -> do
       fV <- fresh e
       xV <- fresh e
       f' <- col e f
-      x' <- col e x
+      x' <- col e x1
       inj e (Lam fV (Lam xV (App (Var fV) (Var xV)))) [f',x']
     Nat -> return Nat
     Zer -> return Zer
-    (Suc p) -> do
+    Suc p -> do
       pV <- fresh e
       p' <- col e p
       inj e (Lam pV (Suc (Var pV))) [p']
     Nam n -> return $ Nam n
-    Dry f x -> do
+    Dry f x1 -> do
       fV <- fresh e
       xV <- fresh e
       f' <- col e f
-      x' <- col e x
+      x' <- col e x1
       inj e (Lam fV (Lam xV (Dry (Var fV) (Var xV)))) [f',x']
-    x -> return x
+    x'' -> return x''
 
 inj :: Env -> Term -> [Term] -> IO Term
 inj e f (x : xs) = do
   !x' <- wnf e [] x
   case x' of
-    (Sup l a b) -> do
+    Sup l a b -> do
       (f0  , f1 ) <- clone  e l f
       (xs0 , xs1) <- clones e l xs
       a' <- inj e f0 (a : xs0)
       b' <- inj e f1 (b : xs1)
       return $ Sup l a' b'
-    x' -> inj e (App f x') xs
-inj e f [] = return f
-
--- Allocation (Standard)
--- =====================
-
-alloc :: Env -> Term -> IO Term
-alloc e term = go IM.empty term where
-  go m (Var k)       = return $ Var (IM.findWithDefault k k m)
-  go m (Dp0 k)       = return $ Dp0 (IM.findWithDefault k k m)
-  go m (Dp1 k)       = return $ Dp1 (IM.findWithDefault k k m)
-  go m Era           = return Era
-  go m (Sup l a b)   = Sup l <$> go m a <*> go m b
-  go m (Dup k l v t) = do
-    k' <- fresh e
-    v' <- go m v
-    t' <- go (IM.insert k k' m) t
-    return $ Dup k' l v' t'
-  go m Set           = return Set
-  go m (All a b)     = All <$> go m a <*> go m b
-  go m (Lam k f)     = do
-    k' <- fresh e
-    f' <- go (IM.insert k k' m) f
-    return $ Lam k' f'
-  go m (App f x)     = App <$> go m f <*> go m x
-  go m Nat           = return Nat
-  go m Zer           = return Zer
-  go m (Suc n)       = Suc <$> go m n
-  go m (Ref k)       = return $ Ref k
-  go m (Nam k)       = return $ Nam k
-  go m (Dry f x)     = Dry <$> go m f <*> go m x
+    x'' -> inj e (App f x'') xs
+inj _ f [] = return f
 
 -- Main
 -- ====
@@ -1023,32 +1046,32 @@ book = unlines
   -- , "@gen = !F&A=@gen &A{Λx.!X&B=x;&B{X₀,1+X₁},Λ{0:&C{0,1};1+:Λp.!G&D=F₁;!P&D=p;&D{(G₀ P₀),!H&E=G₁;!Q&E=P₁;1+&E{(H₀ Q₀),1+(H₁ Q₁)}}}}"
   ]
 
-run :: String -> String -> IO () 
+run :: String -> String -> IO ()
 run book_src term_src = do
   !env <- new_env $ read_book book_src
   !ini <- getCPUTime
-  !val <- alloc env $ read_term term_src
+  !val <- alloc env IM.empty (read_term term_src)
   !val <- col env val
   !val <- snf env 1 val
   !end <- getCPUTime
   !itr <- readIORef (env_inters env)
-  !dt  <- return $ fromIntegral (end - ini) / (10^12)
-  !ips <- return $ fromIntegral itr / dt
+  let dt  = fromIntegral (end - ini) / (10^12)
+      ips = fromIntegral itr / dt
   putStrLn $ show val
   putStrLn $ "- Itrs: " ++ show itr ++ " interactions"
   printf "- Time: %.3f seconds\n" (dt :: Double)
   printf "- Perf: %.2f M interactions/s\n" (ips / 1000000 :: Double)
 
 test :: IO ()
-test = forM_ tests $ \ (src, exp) -> do
+test = forM_ tests $ \ (src, expd) -> do
   env <- new_env $ read_book book
   det <- col env $ read_term src
   det <- show <$> snf env 1 det
-  if det == exp then do
+  if det == expd then do
     putStrLn $ "[PASS] " ++ src ++ " -> " ++ det
   else do
     putStrLn $ "[FAIL] " ++ src
-    putStrLn $ "  - expected: " ++ exp
+    putStrLn $ "  - expected: " ++ expd
     putStrLn $ "  - detected: " ++ det
 
 main :: IO ()
