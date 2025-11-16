@@ -1202,63 +1202,63 @@ snf e d x = do
 -- Collapsing
 -- ==========
 
-col :: Env -> Term -> IO Term
-col e x = do
+collapse :: Env -> Term -> IO Term
+collapse e x = do
   !x' <- wnf e [] x
   case x' of
     Era -> return Era
     Sup l a b -> do
-      a' <- col e a
-      b' <- col e b
+      a' <- collapse e a
+      b' <- collapse e b
       return $ Sup l a' b'
     Set -> return Set
     All a b -> do
       aV <- fresh e
       bV <- fresh e
-      a' <- col e a
-      b' <- col e b
-      inj e (Lam aV (Lam bV (All (Var aV) (Var bV)))) [a',b']
+      a' <- collapse e a
+      b' <- collapse e b
+      collapse_inject e (Lam aV (Lam bV (All (Var aV) (Var bV)))) [a',b']
     Lam k f -> do
       fV <- fresh e
-      f' <- col e f
-      inj e (Lam fV (Lam k (Var fV))) [f']
+      f' <- collapse e f
+      collapse_inject e (Lam fV (Lam k (Var fV))) [f']
     App f x1 -> do
       fV <- fresh e
       xV <- fresh e
-      f' <- col e f
-      x' <- col e x1
-      inj e (Lam fV (Lam xV (App (Var fV) (Var xV)))) [f',x']
+      f' <- collapse e f
+      x' <- collapse e x1
+      collapse_inject e (Lam fV (Lam xV (App (Var fV) (Var xV)))) [f',x']
     Nat -> return Nat
     Zer -> return Zer
     Suc p -> do
       pV <- fresh e
-      p' <- col e p
-      inj e (Lam pV (Suc (Var pV))) [p']
+      p' <- collapse e p
+      collapse_inject e (Lam pV (Suc (Var pV))) [p']
     Swi z s -> do
-      z' <- col e z
-      s' <- col e s
+      z' <- collapse e z
+      s' <- collapse e s
       return (Swi z' s')
     Nam n -> return $ Nam n
     Dry f x1 -> do
       fV <- fresh e
       xV <- fresh e
-      f' <- col e f
-      x' <- col e x1
-      inj e (Lam fV (Lam xV (Dry (Var fV) (Var xV)))) [f',x']
+      f' <- collapse e f
+      x' <- collapse e x1
+      collapse_inject e (Lam fV (Lam xV (Dry (Var fV) (Var xV)))) [f',x']
     x'' -> return x''
 
-inj :: Env -> Term -> [Term] -> IO Term
-inj e f (x : xs) = do
+collapse_inject :: Env -> Term -> [Term] -> IO Term
+collapse_inject e f (x : xs) = do
   !x' <- wnf e [] x
   case x' of
     Sup l a b -> do
       (f0  , f1 ) <- clone  e l f
       (xs0 , xs1) <- clones e l xs
-      a' <- inj e f0 (a : xs0)
-      b' <- inj e f1 (b : xs1)
+      a' <- collapse_inject e f0 (a : xs0)
+      b' <- collapse_inject e f1 (b : xs1)
       return $ Sup l a' b'
-    x'' -> inj e (App f x'') xs
-inj _ f [] = return f
+    x'' -> collapse_inject e (App f x'') xs
+collapse_inject _ f [] = return f
 
 -- Equality
 -- ========
@@ -1754,7 +1754,7 @@ run book_src term_src = do
   !env <- new_env $ read_book book_src
   !ini <- getCPUTime
   !val <- alloc env IM.empty (read_term term_src)
-  !val <- col env val
+  !val <- collapse env val
   !val <- snf env 1 val
   !end <- getCPUTime
   !itr <- readIORef (env_inters env)
@@ -1768,7 +1768,7 @@ run book_src term_src = do
 test :: IO ()
 test = forM_ tests $ \ (src, expd) -> do
   env <- new_env $ read_book book
-  det <- col env $ read_term src
+  det <- collapse env $ read_term src
   det <- show <$> snf env 1 det
   if det == expd then do
     putStrLn $ "[PASS] " ++ src ++ " -> " ++ det
