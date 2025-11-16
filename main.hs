@@ -636,7 +636,7 @@ wnf_enter e s (Ref k) = do
   when debug $ putStrLn $ ">> wnf_enter_ref        : " ++ show (Ref k)
   let (Book m) = env_book e
   case M.lookup k m of
-    Just f  -> wnf_ref_apply e (semi_new k) f s IM.empty []
+    Just f  -> wnf_ref_app e (semi_new k) f s IM.empty []
     Nothing -> error $ "UndefinedReference: " ++ int_to_name k
 
 wnf_enter e s f = do
@@ -873,40 +873,40 @@ wnf_dpn_dry d e s k l vf vx = do
 -- WNF: Ref
 -- --------
 
-wnf_ref_apply :: Env -> Semi -> Term -> Stack -> Subs -> Path -> IO Term
-wnf_ref_apply e sp func s m p = do
-  when debug $ putStrLn $ "## wnf_ref_apply        : " ++ show (semi_term sp) ++ " " ++ show func
+wnf_ref_app :: Env -> Semi -> Term -> Stack -> Subs -> Path -> IO Term
+wnf_ref_app e sp func s m p = do
+  when debug $ putStrLn $ "## wnf_ref_app        : " ++ show (semi_term sp) ++ " " ++ show func
   case s of
-    FDp0 k l : s' -> wnf_ref_dp0 e sp func s' m p k l
-    FDp1 k l : s' -> wnf_ref_dp1 e sp func s' m p k l
+    FDp0 k l : s' -> wnf_ref_app_dp0 e sp func s' m p k l
+    FDp1 k l : s' -> wnf_ref_app_dp1 e sp func s' m p k l
     _ -> case func of
-      Lam k g   -> wnf_ref_lam e sp k g s m p
-      Swi z sc  -> wnf_ref_swi e sp z sc s m p
-      Sup k a b -> wnf_ref_sup e sp k a b s m p
-      Era       -> wnf_ref_del e sp s m p
-      _         -> wnf_ref_ret e sp func s m p
+      Lam k g   -> wnf_ref_app_lam e sp k g s m p
+      Swi z sc  -> wnf_ref_app_swi e sp z sc s m p
+      Sup k a b -> wnf_ref_app_sup e sp k a b s m p
+      Era       -> wnf_ref_app_del e sp s m p
+      _         -> wnf_ref_app_ret e sp func s m p
 
-wnf_ref_dp0 :: Env -> Semi -> Term -> Stack -> Subs -> Path -> Name -> Lab -> IO Term
-wnf_ref_dp0 e sp func s m p _k l =
-  wnf_ref_apply e sp func s m (p ++ [(l, 0)])
+wnf_ref_app_dp0 :: Env -> Semi -> Term -> Stack -> Subs -> Path -> Name -> Lab -> IO Term
+wnf_ref_app_dp0 e sp func s m p _k l =
+  wnf_ref_app e sp func s m (p ++ [(l, 0)])
 
-wnf_ref_dp1 :: Env -> Semi -> Term -> Stack -> Subs -> Path -> Name -> Lab -> IO Term
-wnf_ref_dp1 e sp func s m p _k l =
-  wnf_ref_apply e sp func s m (p ++ [(l, 1)])
+wnf_ref_app_dp1 :: Env -> Semi -> Term -> Stack -> Subs -> Path -> Name -> Lab -> IO Term
+wnf_ref_app_dp1 e sp func s m p _k l =
+  wnf_ref_app e sp func s m (p ++ [(l, 1)])
 
-wnf_ref_lam :: Env -> Semi -> Name -> Term -> Stack -> Subs -> Path -> IO Term
-wnf_ref_lam e sp k g s m p =
+wnf_ref_app_lam :: Env -> Semi -> Name -> Term -> Stack -> Subs -> Path -> IO Term
+wnf_ref_app_lam e sp k g s m p =
   case s of
     FApp a : s' -> do
       inc_inters e
       let a' = wnf_ref_bind a p
       let m' = IM.insert k a' m
       let sp' = semi_app sp (Var k)
-      wnf_ref_apply e sp' g s' m' p
-    _ -> wnf_ref_ret e sp (Lam k g) s m p
+      wnf_ref_app e sp' g s' m' p
+    _ -> wnf_ref_app_ret e sp (Lam k g) s m p
 
-wnf_ref_swi :: Env -> Semi -> Term -> Term -> Stack -> Subs -> Path -> IO Term
-wnf_ref_swi e sp z sc s m p =
+wnf_ref_app_swi :: Env -> Semi -> Term -> Term -> Stack -> Subs -> Path -> IO Term
+wnf_ref_app_swi e sp z sc s m p =
   case s of
     FApp t : s' -> do
       t_val <- wnf e [] t
@@ -914,45 +914,45 @@ wnf_ref_swi e sp z sc s m p =
         Zer -> do
           inc_inters e
           let sp' = semi_app sp Zer
-          wnf_ref_apply e sp' z s' m p
+          wnf_ref_app e sp' z s' m p
         Suc a -> do
           inc_inters e
           let sp' = semi_ctr sp
-          wnf_ref_apply e sp' sc (FApp a : s') m p
+          wnf_ref_app e sp' sc (FApp a : s') m p
         Sup l a b -> do
           inc_inters e
           (s0, s1) <- clone_ref_stack e l s'
           (m0, m1) <- clone_ref_subst e l m
-          r0       <- wnf_ref_apply e sp (Swi z sc) (FApp a : s0) m0 (p ++ [(l, 0)])
-          r1       <- wnf_ref_apply e sp (Swi z sc) (FApp b : s1) m1 (p ++ [(l, 1)])
+          r0       <- wnf_ref_app e sp (Swi z sc) (FApp a : s0) m0 (p ++ [(l, 0)])
+          r1       <- wnf_ref_app e sp (Swi z sc) (FApp b : s1) m1 (p ++ [(l, 1)])
           return (Sup l r0 r1)
         Era -> do
           return Era
         _ -> do
-          wnf_ref_stuck e sp (FApp t_val : s') m p
-    _ -> wnf_ref_ret e sp (Swi z sc) s m p
+          wnf_ref_app_stuck e sp (FApp t_val : s') m p
+    _ -> wnf_ref_app_ret e sp (Swi z sc) s m p
 
-wnf_ref_sup :: Env -> Semi -> Lab -> Term -> Term -> Stack -> Subs -> Path -> IO Term
-wnf_ref_sup e sp k a b s m p =
+wnf_ref_app_sup :: Env -> Semi -> Lab -> Term -> Term -> Stack -> Subs -> Path -> IO Term
+wnf_ref_app_sup e sp k a b s m p =
   case lookup_path k p of
     Just 0 -> do
       let p' = remove_path k p
-      wnf_ref_apply e sp a s m p'
+      wnf_ref_app e sp a s m p'
     Just 1 -> do
       let p' = remove_path k p
-      wnf_ref_apply e sp b s m p'
+      wnf_ref_app e sp b s m p'
     Nothing -> do
       (s0, s1) <- clone_ref_stack e k s
       (m0, m1) <- clone_ref_subst e k m
-      r0 <- wnf_ref_apply e sp a s0 m0 p
-      r1 <- wnf_ref_apply e sp b s1 m1 p
+      r0 <- wnf_ref_app e sp a s0 m0 p
+      r1 <- wnf_ref_app e sp b s1 m1 p
       return (Sup k r0 r1)
 
-wnf_ref_del :: Env -> Semi -> Stack -> Subs -> Path -> IO Term
-wnf_ref_del _e _sp _s _m _p = return Era
+wnf_ref_app_del :: Env -> Semi -> Stack -> Subs -> Path -> IO Term
+wnf_ref_app_del _e _sp _s _m _p = return Era
 
-wnf_ref_ret :: Env -> Semi -> Term -> Stack -> Subs -> Path -> IO Term
-wnf_ref_ret e _sp t s m p = do
+wnf_ref_app_ret :: Env -> Semi -> Term -> Stack -> Subs -> Path -> IO Term
+wnf_ref_app_ret e _sp t s m p = do
   t <- alloc e m t
   t <- wnf_ref_wrap e t p
   wnf e s t
@@ -970,8 +970,8 @@ remove_path k p =
     (_, [])    -> p
     (xs, _:ys) -> reverse (xs ++ ys)
 
-wnf_ref_stuck :: Env -> Semi -> Stack -> Subs -> Path -> IO Term
-wnf_ref_stuck e sp s m p = do
+wnf_ref_app_stuck :: Env -> Semi -> Stack -> Subs -> Path -> IO Term
+wnf_ref_app_stuck e sp s m p = do
   t <- alloc e m (semi_term sp)
   t <- wnf_unwind e s t
   wnf_ref_wrap e t p
