@@ -1,7 +1,178 @@
+-- Calculus of Interactions
+-- ========================
+-- CoI is a term rewrite system for the following grammar:
+-- 
+-- Term ::=
+-- | Var ::= Name
+-- | Dp0 ::= Name "₀"
+-- | Dp1 ::= Name "₁"
+-- | Era ::= "&{}"
+-- | Sup ::= "&" Name "{" Term "," Term "}"
+-- | Dup ::= "!" Name "&" Name "=" Term ";" Term
+-- | Set ::= "*"
+-- | All ::= "∀" Term "." Term
+-- | Lam ::= "λ" Name "." Term
+-- | App ::= "(" Term " " Term ")"
+-- | Nat ::= "ℕ"
+-- | Zer ::= "0"
+-- | Suc ::= "1+"
+-- | Ref ::= "@" Name
+-- | Cal ::= Term "~>" Term
+--
+-- Where:
+-- - Name ::= any sequence of base-64 chars in _ A-Z a-z 0-9 $
+-- - [T]  ::= any sequence of T separated by ","
+-- 
+-- In CoI:
+-- - Variables are affine (they must occur at most once)
+-- - Variables range globally (they can occur anywhere)
+-- 
+-- Interaction Table
+-- =================
+-- 
+-- ! X &L = &{}
+-- ------------ dup-era
+-- X₀ ← &{}
+-- X₁ ← &{}
+--
+-- ! X &L = &R{a,b}
+-- ---------------- dup-sup
+-- if L == R:
+--   X₀ ← a
+--   X₁ ← b
+-- else:
+--   ! A &L = a
+--   ! B &L = b
+--   X₀ ← &R{A₀,B₀}
+--   X₁ ← &R{A₁,B₁}
+--
+-- ! X &L = *
+-- ---------- dup-set
+-- X₀ ← *
+-- X₁ ← *
+--
+-- ! X &L = ∀a.b
+-- ------------- dup-all
+-- ! A &L = a
+-- ! B &L = b
+-- X₀ ← ∀A₀.B₀
+-- X₁ ← ∀A₁.B₁
+--
+-- ! F &L = λx.f
+-- ---------------- dup-lam
+-- F₀ ← λ$x0.G₀
+-- F₁ ← λ$x1.G₁
+-- x  ← &L{$x0,$x1}
+-- ! G &L = f
+--
+-- ! X &L = ℕ
+-- ---------- dup-nat
+-- X₀ ← ℕ
+-- X₁ ← ℕ
+--
+-- ! X &L = 1+n
+-- ------------ dup-suc
+-- ! N &L = n
+-- X₀ ← 1+N₀
+-- X₁ ← 1+N₁
+--
+-- ! X &L = 0
+-- ---------- dup-zer
+-- X₀ ← 0
+-- X₁ ← 0
+--
+-- ! X &L = Λ{0:z;1+:s}
+-- -------------------- dup-swi
+-- ! Z &L = z
+-- ! S &L = s
+-- X₀ ← Λ{0:Z₀;1+:S₀}
+-- X₁ ← Λ{0:Z₁;1+:S₁}
+--
+-- ! X &L = .n
+-- ----------- dup-nam
+-- X₀ ← .n
+-- X₁ ← .n
+--
+-- ! X &L = .(f x)
+-- --------------- dup-dry
+-- ! F &L = f
+-- ! A &L = x
+-- X₀ ← .(F₀ A₀)
+-- X₁ ← .(F₁ A₁)
+--
+-- ! X &L = f ~> g
+-- --------------- dup-cal
+-- ! F &L = f
+-- ! G &L = g
+-- X₀ ← F₀ ~> G₀
+-- X₁ ← F₁ ~> G₁
+--
+-- (&{} a)
+-- ------- app-era
+-- &{}
+--
+-- (&L{f,g} a)
+-- ----------------- app-sup
+-- ! A &L = a
+-- &L{(f A₀),(g A₁)}
+--
+-- (λx.f a)
+-- -------- app-lam
+-- x ← a
+-- f
+--
+-- (.n a)
+-- ------ app-nam
+-- .(.n a)
+--
+-- (.(f x) a)
+-- ---------- app-dry
+-- .(.(f x) a)
+--
+-- ((f ~> &{}) a)
+-- -------------- app-cal-era
+-- &{}
+--
+-- ((f ~> &L{x,y}) a)
+-- ------------------ app-cal-sup
+-- ! F &L = f
+-- ! A &L = a
+-- &L{((F₀ ~> x) A₀)
+--   ,((F₁ ~> y) A₁)}
+--
+-- ((f ~> λx.g) a)
+-- --------------- app-cal-lam
+-- x ← a
+-- (f x) ~> g
+--
+-- ((f ~> Λ{0:z;1+:s}) &{})
+-- ------------------------ app-cal-swi-era
+-- &{}
+--
+-- ((f ~> Λ{0:z;1+:s}) &L{a,b})
+-- ---------------------------- app-cal-swi-sup
+-- ! F &L = f
+-- ! Z &L = z
+-- ! S &L = s
+-- &L{((F₀ ~> Λ{0:Z₀;1+:S₀}) a)
+--   ,((F₁ ~> Λ{0:Z₁;1+:S₁}) b)}
+--
+-- ((f ~> Λ{0:z;1+:s}) 1+n)
+-- ------------------------ app-cal-swi-suc
+-- ((λp.(f 1+p) ~> s) n)
+--
+-- ((f ~> Λ{0:z;1+:s}) 0)
+-- ---------------------- app-cal-swi-zer
+-- (f 0) ~> z
+--
+-- @foo
+-- ------------------ ref
+-- foo ~> Book["foo"]
+
 {-# LANGUAGE BangPatterns #-}
 {-# OPTIONS_GHC -O2 #-}
 
-import Control.Monad (when, forM_)
+import Control.Monad (forM_)
 import Data.Bits (shiftL)
 import Data.Char (isDigit)
 import Data.IORef
@@ -97,15 +268,6 @@ show_dup_map m = unlines [ "! " ++ int_to_name k ++ " &" ++ int_to_name l ++ " =
 show_sub_map :: IM.IntMap Term -> String
 show_sub_map m = unlines [ int_to_name (k `div` 4) ++ suffix (k `mod` 4) ++ " ← " ++ show v | (k, v) <- IM.toList m ]
   where suffix x = case x of { 0 -> "" ; 1 -> "₀" ; 2 -> "₁" ; _ -> "?" }
-
--- Utils
--- =====
-
-sp0 :: Int -> Int
-sp0 x = (x * 16293 + 1) `mod` 65536
-
-sp1 :: Int -> Int
-sp1 x = (x * 32677 + 3) `mod` 65536
 
 -- Name Encoding/Decoding
 -- ======================
@@ -322,16 +484,19 @@ take_dup e k = taker (env_dup_map e) k
 take_sub :: Kind -> Env -> Name -> IO (Maybe Term)
 take_sub ki e k = taker (env_sub_map e) (k `shiftL` 2 + fromEnum ki)
 
+make_dup :: Env -> Name -> Lab -> Term -> IO ()
+make_dup e k l v = modifyIORef' (env_dup_map e) (IM.insert k (l, v))
+
 subst :: Kind -> Env -> Name -> Term -> IO ()
 subst s e k v = modifyIORef' (env_sub_map e) (IM.insert (k `shiftL` 2 + fromEnum s) v)
 
-duply :: Env -> Name -> Lab -> Term -> IO ()
-duply e k l v = modifyIORef' (env_dup_map e) (IM.insert k (l, v))
+-- Cloning
+-- =======
 
 clone :: Env -> Lab -> Term -> IO (Term, Term)
 clone e l v = do
   k <- fresh e
-  duply e k l v
+  make_dup e k l v
   return $ (Dp0 k , Dp1 k)
 
 clone_list :: Env -> Lab -> [Term] -> IO ([Term],[Term])
@@ -391,7 +556,7 @@ wnf_enter e s (App f x) = do
   wnf_enter e (FApp x : s) f
 
 wnf_enter e s (Dup k l v t) = do
-  duply e k l v
+  make_dup e k l v
   wnf_enter e s t
 
 wnf_enter e s (Ref k) = do
@@ -417,43 +582,86 @@ wnf_unwind e []      v = return v
 wnf_unwind e (x : s) v = do
   case x of
     FApp a   -> wnf_app e s v a
-    FDp0 k l -> wnf_dpn e s v k l (Dp0 k)
-    FDp1 k l -> wnf_dpn e s v k l (Dp1 k)
+    FDp0 k l -> wnf_dup e s v k l (Dp0 k)
+    FDp1 k l -> wnf_dup e s v k l (Dp1 k)
 
 wnf_app :: Env -> Stack -> Term -> Term -> IO Term
 wnf_app e s f a = case f of
-  Era          -> wnf_app_era e s a
-  Sup fl fa fb -> wnf_app_sup e s fl fa fb a
-  Set          -> wnf_app_set e s a
-  All va vb    -> wnf_app_all e s va vb a
-  Lam fk ff    -> wnf_app_lam e s fk ff a
-  Nat          -> wnf_app_nat e s a
-  Zer          -> wnf_app_zer e s a
-  Suc vp       -> wnf_app_suc e s vp a
-  Swi vz vs    -> wnf_app_swi e s vz vs a
-  Nam fk       -> wnf_app_nam e s fk a
-  Dry ff fx    -> wnf_app_dry e s ff fx a
-  Cal ff fg    -> wnf_app_cal e s ff fg a
-  _            -> wnf_unwind e s (App f a)
+  Era       -> wnf_app_era e s f a
+  Sup {}    -> wnf_app_sup e s f a
+  Lam {}    -> wnf_app_lam e s f a
+  Swi {}    -> error "TODO"
+  Nam {}    -> wnf_app_nam e s f a
+  Dry {}    -> wnf_app_dry e s f a
+  Cal {}    -> wnf_app_cal e s f a
+  Set       -> error "wnf_app_set"
+  All {}    -> error "wnf_app_all"
+  Nat       -> error "wnf_app_nat"
+  Zer       -> error "wnf_app_zer"
+  Suc {}    -> error "wnf_app_suc"
+  _         -> wnf_unwind e s (App f a)
 
-wnf_dpn :: Env -> Stack -> Term -> Name -> Lab -> Term -> IO Term
-wnf_dpn e s v k l t = case v of
-  Era          -> wnf_dpn_era e s k l t
-  Sup vl va vb -> wnf_dpn_sup e s k l vl va vb t
-  Set          -> wnf_dpn_set e s k l t
-  All va vb    -> wnf_dpn_all e s k l va vb t
-  Lam vk vf    -> wnf_dpn_lam e s k l vk vf t
-  Nat          -> wnf_dpn_nat e s k l t
-  Zer          -> wnf_dpn_zer e s k l t
-  Suc vp       -> wnf_dpn_suc e s k l vp t
-  Swi vz vs    -> wnf_dpn_swi e s k l vz vs t
-  Nam n        -> wnf_dpn_nam e s k l n t
-  Dry vf vx    -> wnf_dpn_dry e s k l vf vx t
-  Cal vf vg    -> wnf_dpn_cal e s k l vf vg t
-  _            -> wnf_unwind e s (Dup k l v t)
+wnf_dup :: Env -> Stack -> Term -> Name -> Lab -> Term -> IO Term
+wnf_dup e s v k l t = case v of
+  Era    -> wnf_dup_era e s v k l t
+  Sup {} -> wnf_dup_sup e s v k l t
+  Set    -> wnf_dup_set e s v k l t
+  All {} -> wnf_dup_all e s v k l t
+  Lam {} -> wnf_dup_lam e s v k l t
+  Nat    -> wnf_dup_nat e s v k l t
+  Zer    -> wnf_dup_zer e s v k l t
+  Suc {} -> wnf_dup_suc e s v k l t
+  Swi {} -> wnf_dup_swi e s v k l t
+  Nam {} -> wnf_dup_nam e s v k l t
+  Dry {} -> wnf_dup_dry e s v k l t
+  Cal {} -> wnf_dup_cal e s v k l t
+  _      -> wnf_unwind e s (Dup k l v t)
 
--- WNF: Interactions
--- -----------------
+-- WNF: Sub Interaction
+-- --------------------
+
+wnf_sub :: Kind -> Env -> Stack -> Name -> IO Term
+wnf_sub ki e s k = do
+  mt <- take_sub ki e k
+  case mt of
+    Just t  -> wnf e s t
+    Nothing -> wnf_unwind e s $ case ki of
+      VAR -> Var k
+      DP0 -> Dp0 k
+      DP1 -> Dp1 k
+
+-- WNF: App Interactions
+-- ---------------------
+
+type WnfApp = Env -> Stack -> Term -> Term -> IO Term
+
+wnf_app_era :: WnfApp
+wnf_app_era e s Era v = do
+  inc_inters e
+  wnf e s Era
+
+wnf_app_nam :: WnfApp
+wnf_app_nam e s (Nam fk) v = wnf e s (Dry (Nam fk) v)
+
+wnf_app_dry :: WnfApp
+wnf_app_dry e s (Dry ff fx) v = wnf e s (Dry (Dry ff fx) v)
+
+wnf_app_lam :: WnfApp
+wnf_app_lam e s (Lam fx ff) v = do
+  inc_inters e
+  subst VAR e fx v
+  wnf e s ff
+
+wnf_app_sup :: WnfApp
+wnf_app_sup e s (Sup fL fa fb) v = do
+  inc_inters e
+  (x0,x1) <- clone e fL v
+  wnf e s (Sup fL (App fa x0) (App fb x1))
+
+-- WNF: Dup Interactions
+-- ---------------------
+
+type WnfDup = Env -> Stack -> Term -> Name -> Lab -> Term -> IO Term
 
 wnf_dup_0 :: Env -> Stack -> Name -> Term -> Term -> IO Term
 wnf_dup_0 e s k v t = do
@@ -479,62 +687,11 @@ wnf_dup_2 e s k l t v1 v2 c = do
   subst DP1 e k (c v1b v2b)
   wnf e s t
 
-wnf_sub :: Kind -> Env -> Stack -> Name -> IO Term
-wnf_sub ki e s k = do
-  mt <- take_sub ki e k
-  case mt of
-    Just t  -> wnf e s t
-    Nothing -> wnf_unwind e s $ case ki of
-      VAR -> Var k
-      DP0 -> Dp0 k
-      DP1 -> Dp1 k
+wnf_dup_era :: WnfDup
+wnf_dup_era e s Era k _ t = wnf_dup_0 e s k Era t
 
-wnf_app_era :: Env -> Stack -> Term -> IO Term
-wnf_app_era e s v = do
-  inc_inters e
-  wnf e s Era
-
-wnf_app_set :: Env -> Stack -> Term -> IO Term
-wnf_app_set e s v = error "app-set"
-
-wnf_app_all :: Env -> Stack -> Term -> Term -> Term -> IO Term
-wnf_app_all e s va vb v = error "app-all"
-
-wnf_app_nat :: Env -> Stack -> Term -> IO Term
-wnf_app_nat e s v = error "app-nat"
-
-wnf_app_zer :: Env -> Stack -> Term -> IO Term
-wnf_app_zer e s v = error "app-zer"
-
-wnf_app_suc :: Env -> Stack -> Term -> Term -> IO Term
-wnf_app_suc e s vp v = error "app-suc"
-
-wnf_app_swi :: Env -> Stack -> Term -> Term -> Term -> IO Term
-wnf_app_swi e s vz vs v = error "app-swi"
-
-wnf_app_nam :: Env -> Stack -> String -> Term -> IO Term
-wnf_app_nam e s fk v = wnf e s (Dry (Nam fk) v)
-
-wnf_app_dry :: Env -> Stack -> Term -> Term -> Term -> IO Term
-wnf_app_dry e s ff fx v = wnf e s (Dry (Dry ff fx) v)
-
-wnf_app_lam :: Env -> Stack -> Name -> Term -> Term -> IO Term
-wnf_app_lam e s fx ff v = do
-  inc_inters e
-  subst VAR e fx v
-  wnf e s ff
-
-wnf_app_sup :: Env -> Stack -> Lab -> Term -> Term -> Term -> IO Term
-wnf_app_sup e s fL fa fb v = do
-  inc_inters e
-  (x0,x1) <- clone e fL v
-  wnf e s (Sup fL (App fa x0) (App fb x1))
-
-wnf_dpn_era :: Env -> Stack -> Name -> Lab -> Term -> IO Term
-wnf_dpn_era e s k _ t = wnf_dup_0 e s k Era t
-
-wnf_dpn_sup :: Env -> Stack -> Name -> Lab -> Lab -> Term -> Term -> Term -> IO Term
-wnf_dpn_sup e s k l vl va vb t
+wnf_dup_sup :: WnfDup
+wnf_dup_sup e s (Sup vl va vb) k l t
   | l == vl = do
       inc_inters e
       subst DP0 e k va
@@ -543,14 +700,14 @@ wnf_dpn_sup e s k l vl va vb t
   | otherwise = do
       wnf_dup_2 e s k l t va vb (Sup vl)
 
-wnf_dpn_set :: Env -> Stack -> Name -> Lab -> Term -> IO Term
-wnf_dpn_set e s k _ t = wnf_dup_0 e s k Set t
+wnf_dup_set :: WnfDup
+wnf_dup_set e s Set k _ t = wnf_dup_0 e s k Set t
 
-wnf_dpn_all :: Env -> Stack -> Name -> Lab -> Term -> Term -> Term -> IO Term
-wnf_dpn_all e s k l va vb t = wnf_dup_2 e s k l t va vb All
+wnf_dup_all :: WnfDup
+wnf_dup_all e s (All va vb) k l t = wnf_dup_2 e s k l t va vb All
 
-wnf_dpn_lam :: Env -> Stack -> Name -> Lab -> Name -> Term -> Term -> IO Term
-wnf_dpn_lam e s k l vk vf t = do
+wnf_dup_lam :: WnfDup
+wnf_dup_lam e s (Lam vk vf) k l t = do
   inc_inters e
   x0      <- fresh e
   x1      <- fresh e
@@ -560,49 +717,52 @@ wnf_dpn_lam e s k l vk vf t = do
   subst VAR e vk (Sup l (Var x0) (Var x1))
   wnf e s t
 
-wnf_dpn_nat :: Env -> Stack -> Name -> Lab -> Term -> IO Term
-wnf_dpn_nat e s k _ t = wnf_dup_0 e s k Nat t
+wnf_dup_nat :: WnfDup
+wnf_dup_nat e s Nat k _ t = wnf_dup_0 e s k Nat t
 
-wnf_dpn_zer :: Env -> Stack -> Name -> Lab -> Term -> IO Term
-wnf_dpn_zer e s k _ t = wnf_dup_0 e s k Zer t
+wnf_dup_zer :: WnfDup
+wnf_dup_zer e s Zer k _ t = wnf_dup_0 e s k Zer t
 
-wnf_dpn_suc :: Env -> Stack -> Name -> Lab -> Term -> Term -> IO Term
-wnf_dpn_suc e s k l p t = wnf_dup_1 e s k l t p Suc
+wnf_dup_suc :: WnfDup
+wnf_dup_suc e s (Suc p) k l t = wnf_dup_1 e s k l t p Suc
 
-wnf_dpn_swi :: Env -> Stack -> Name -> Lab -> Term -> Term -> Term -> IO Term
-wnf_dpn_swi e s k l vz vs t = wnf_dup_2 e s k l t vz vs Swi
+wnf_dup_swi :: WnfDup
+wnf_dup_swi e s (Swi vz vs) k l t = wnf_dup_2 e s k l t vz vs Swi
 
-wnf_dpn_nam :: Env -> Stack -> Name -> Lab -> String -> Term -> IO Term
-wnf_dpn_nam e s k _ n t = wnf_dup_0 e s k (Nam n) t
+wnf_dup_nam :: WnfDup
+wnf_dup_nam e s (Nam n) k _ t = wnf_dup_0 e s k (Nam n) t
 
-wnf_dpn_dry :: Env -> Stack -> Name -> Lab -> Term -> Term -> Term -> IO Term
-wnf_dpn_dry e s k l vf vx t = wnf_dup_2 e s k l t vf vx Dry
+wnf_dup_dry :: WnfDup
+wnf_dup_dry e s (Dry vf vx) k l t = wnf_dup_2 e s k l t vf vx Dry
 
-wnf_app_cal :: Env -> Stack -> Term -> Term -> Term -> IO Term
-wnf_app_cal e s f g a = do
+-- WNF: Deref Interactions
+-- -----------------------
+
+wnf_app_cal :: Env -> Stack -> Term -> Term -> IO Term
+wnf_app_cal e s (Cal f g) a = do
   !g_wnf <- wnf e [] g
   case g_wnf of
-    Era          -> wnf_app_cal_era e s f a
-    Sup fl ff fg -> wnf_app_cal_sup e s f fl ff fg a
-    Set          -> wnf_app_cal_set e s f a
-    All va vb    -> wnf_app_cal_all e s f va vb a
-    Lam fx ff    -> wnf_app_cal_lam e s f fx ff a
-    Nat          -> wnf_app_cal_nat e s f a
-    Zer          -> wnf_app_cal_zer e s f a
-    Suc vp       -> wnf_app_cal_suc e s f vp a
-    Swi fz fs    -> wnf_app_cal_swi e s f fz fs a
-    Nam fk       -> wnf_app_cal_nam e s f fk a
-    Dry ff fx    -> wnf_app_cal_dry e s f ff fx a
-    Cal fg fh    -> wnf_app_cal_cal e s f fg fh a
-    _            -> wnf_unwind e s (App (Cal f g_wnf) a)
+    Era    -> wnf_app_cal_era e s f g_wnf a
+    Sup {} -> wnf_app_cal_sup e s f g_wnf a
+    Lam {} -> wnf_app_cal_lam e s f g_wnf a
+    Swi {} -> wnf_app_cal_swi e s f g_wnf a
+    Set    -> error "wnf_app_cal_set"
+    All {} -> error "wnf_app_cal_all"
+    Nat    -> error "wnf_app_cal_nat"
+    Zer    -> error "wnf_app_cal_zer"
+    Suc {} -> error "wnf_app_cal_suc"
+    Nam {} -> error "wnf_app_cal_nam"
+    Dry {} -> error "wnf_app_cal_dry"
+    Cal {} -> error "wnf_app_cal_cal"
+    _      -> wnf_unwind e s (App (Cal f g_wnf) a)
 
-wnf_app_cal_era :: Env -> Stack -> Term -> Term -> IO Term
-wnf_app_cal_era e s f a = do
+wnf_app_cal_era :: Env -> Stack -> Term -> Term -> Term -> IO Term
+wnf_app_cal_era e s f Era a = do
   inc_inters e
   wnf e s Era
 
-wnf_app_cal_sup :: Env -> Stack -> Term -> Lab -> Term -> Term -> Term -> IO Term
-wnf_app_cal_sup e s f l x y a = do
+wnf_app_cal_sup :: Env -> Stack -> Term -> Term -> Term -> IO Term
+wnf_app_cal_sup e s f (Sup l x y) a = do
   inc_inters e
   (f0,f1) <- clone e l f
   (a0,a1) <- clone e l a
@@ -610,50 +770,36 @@ wnf_app_cal_sup e s f l x y a = do
   let app1 = (App (Cal f1 y) a1)
   wnf_enter e s (Sup l app0 app1)
 
-wnf_app_cal_set :: Env -> Stack -> Term -> Term -> IO Term
-wnf_app_cal_set e s f a = error "app-cal-set"
-
-wnf_app_cal_all :: Env -> Stack -> Term -> Term -> Term -> Term -> IO Term
-wnf_app_cal_all e s f va vb a = error "app-cal-all"
-
-wnf_app_cal_lam :: Env -> Stack -> Term -> Name -> Term -> Term -> IO Term
-wnf_app_cal_lam e s f x g a = do
+wnf_app_cal_lam :: Env -> Stack -> Term -> Term -> Term -> IO Term
+wnf_app_cal_lam e s f (Lam x g) a = do
   inc_inters e
   subst VAR e x a
   wnf_enter e s (Cal (App f (Var x)) g)
 
-wnf_app_cal_nat :: Env -> Stack -> Term -> Term -> IO Term
-wnf_app_cal_nat e s f a = error "app-cal-nat"
-
-wnf_app_cal_zer :: Env -> Stack -> Term -> Term -> IO Term
-wnf_app_cal_zer e s f a = error "app-cal-zer"
-
-wnf_app_cal_suc :: Env -> Stack -> Term -> Term -> Term -> IO Term
-wnf_app_cal_suc e s f vp a = error "app-cal-suc"
-
-wnf_app_cal_swi :: Env -> Stack -> Term -> Term -> Term -> Term -> IO Term
-wnf_app_cal_swi e s f z sc a = do
+wnf_app_cal_swi :: Env -> Stack -> Term -> Term -> Term -> IO Term
+wnf_app_cal_swi e s f (Swi z sc) a = do
   !a_wnf <- wnf e [] a
   case a_wnf of
-    Era       -> wnf_app_cal_swi_era e s f z sc
-    Sup l b c -> wnf_app_cal_swi_sup e s f z sc l b c
-    Set       -> wnf_app_cal_swi_set e s f z sc
-    All va vb -> wnf_app_cal_swi_all e s f z sc va vb
-    Lam vk vf -> wnf_app_cal_swi_lam e s f z sc vk vf
-    Nat       -> wnf_app_cal_swi_nat e s f z sc
-    Zer       -> wnf_app_cal_swi_zer e s f z
-    Suc n     -> wnf_app_cal_swi_suc e s f sc n
-    Swi vz vs -> wnf_app_cal_swi_swi e s f z sc vz vs
-    Nam n     -> wnf_app_cal_swi_nam e s f z sc n
-    Dry vf vx -> wnf_app_cal_swi_dry e s f z sc vf vx
-    Cal vf vg -> wnf_app_cal_swi_cal e s f z sc vf vg
-    a         -> wnf_unwind e s (App f a)
+    Era    -> wnf_app_cal_swi_era e s f z sc a_wnf
+    Sup {} -> wnf_app_cal_swi_sup e s f z sc a_wnf
+    Zer    -> wnf_app_cal_swi_zer e s f z a_wnf
+    Suc {} -> wnf_app_cal_swi_suc e s f sc a_wnf
+    Set    -> error "wnf_app_cal_swi_set"
+    All {} -> error "wnf_app_cal_swi_all"
+    Lam {} -> error "wnf_app_cal_swi_lam"
+    Nat    -> error "wnf_app_cal_swi_nat"
+    Swi {} -> error "wnf_app_cal_swi_swi"
+    Nam {} -> error "wnf_app_cal_swi_nam"
+    Dry {} -> error "wnf_app_cal_swi_dry"
+    Cal {} -> error "wnf_app_cal_swi_cal"
+    a      -> wnf_unwind e s (App f a)
 
-wnf_app_cal_swi_era :: Env -> Stack -> Term -> Term -> Term -> IO Term
-wnf_app_cal_swi_era e s f z sc = error "app-cal-swi-era"
+wnf_app_cal_swi_era :: Env -> Stack -> Term -> Term -> Term -> Term -> IO Term
+wnf_app_cal_swi_era e s f z sc Era = do
+  wnf_enter e s Era
 
-wnf_app_cal_swi_sup :: Env -> Stack -> Term -> Term -> Term -> Lab -> Term -> Term -> IO Term
-wnf_app_cal_swi_sup e s f z sc l a b = do
+wnf_app_cal_swi_sup :: Env -> Stack -> Term -> Term -> Term -> Term -> IO Term
+wnf_app_cal_swi_sup e s f z sc (Sup l a b) = do
   inc_inters e
   (f0,f1) <- clone e l f
   (z0,z1) <- clone e l z
@@ -662,53 +808,20 @@ wnf_app_cal_swi_sup e s f z sc l a b = do
   let app1 = App (Cal f1 (Swi z1 s1)) b
   wnf_enter e s (Sup l app0 app1)
 
-wnf_app_cal_swi_set :: Env -> Stack -> Term -> Term -> Term -> IO Term
-wnf_app_cal_swi_set e s f z sc = error "app-cal-swi-set"
-
-wnf_app_cal_swi_all :: Env -> Stack -> Term -> Term -> Term -> Term -> Term -> IO Term
-wnf_app_cal_swi_all e s f z sc va vb = error "app-cal-swi-all"
-
-wnf_app_cal_swi_lam :: Env -> Stack -> Term -> Term -> Term -> Name -> Term -> IO Term
-wnf_app_cal_swi_lam e s f z sc vk vf = error "app-cal-swi-lam"
-
-wnf_app_cal_swi_nat :: Env -> Stack -> Term -> Term -> Term -> IO Term
-wnf_app_cal_swi_nat e s f z sc = error "app-cal-swi-nat"
-
-wnf_app_cal_swi_zer :: Env -> Stack -> Term -> Term -> IO Term
-wnf_app_cal_swi_zer e s f z = do
+wnf_app_cal_swi_zer :: Env -> Stack -> Term -> Term -> Term -> IO Term
+wnf_app_cal_swi_zer e s f z Zer = do
   inc_inters e
   wnf_enter e s (Cal (App f Zer) z)
 
 wnf_app_cal_swi_suc :: Env -> Stack -> Term -> Term -> Term -> IO Term
-wnf_app_cal_swi_suc e s f sc n = do
+wnf_app_cal_swi_suc e s f sc (Suc n) = do
   inc_inters e
   p <- fresh e
   let fn = (Lam p (App f (Suc (Var p))))
   wnf_enter e s (App (Cal fn sc) n)
 
-wnf_app_cal_swi_swi :: Env -> Stack -> Term -> Term -> Term -> Term -> Term -> IO Term
-wnf_app_cal_swi_swi e s f z sc vz vs = error "app-cal-swi-swi"
-
-wnf_app_cal_swi_nam :: Env -> Stack -> Term -> Term -> Term -> String -> IO Term
-wnf_app_cal_swi_nam e s f z sc n = error "app-cal-swi-nam"
-
-wnf_app_cal_swi_dry :: Env -> Stack -> Term -> Term -> Term -> Term -> Term -> IO Term
-wnf_app_cal_swi_dry e s f z sc vf vx = error "app-cal-swi-dry"
-
-wnf_app_cal_swi_cal :: Env -> Stack -> Term -> Term -> Term -> Term -> Term -> IO Term
-wnf_app_cal_swi_cal e s f z sc vf vg = error "app-cal-swi-cal"
-
-wnf_app_cal_nam :: Env -> Stack -> Term -> String -> Term -> IO Term
-wnf_app_cal_nam e s f n a = error "app-cal-nam"
-
-wnf_app_cal_dry :: Env -> Stack -> Term -> Term -> Term -> Term -> IO Term
-wnf_app_cal_dry e s f fg fx a = error "app-cal-dry"
-
-wnf_app_cal_cal :: Env -> Stack -> Term -> Term -> Term -> Term -> IO Term
-wnf_app_cal_cal e s f fg fh a = error "app-cal-cal"
-
-wnf_dpn_cal :: Env -> Stack -> Name -> Lab -> Term -> Term -> Term -> IO Term
-wnf_dpn_cal e s k l f g t = wnf_dup_2 e s k l t f g Cal
+wnf_dup_cal :: Env -> Stack -> Term -> Name -> Lab -> Term -> IO Term
+wnf_dup_cal e s (Cal f g) k l t = wnf_dup_2 e s k l t f g Cal
 
 -- Allocation
 -- ==========
@@ -889,6 +1002,12 @@ max_intr = 2
 
 rec_intr :: Int
 rec_intr = 1
+
+sp0 :: Int -> Int
+sp0 x = (x * 16293 + 1) `mod` 65536
+
+sp1 :: Int -> Int
+sp1 x = (x * 32677 + 3) `mod` 65536
 
 -- e: Env    = environment
 -- l: Int    = label (for forking the search space)
