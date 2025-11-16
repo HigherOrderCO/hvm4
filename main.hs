@@ -1102,6 +1102,11 @@ alloc_term e holders subs term = case term of
     n' <- alloc_term e holders subs n
     return (Suc n')
 
+  Swi z s -> do
+    z' <- alloc_term e holders subs z
+    s' <- alloc_term e holders subs s
+    return (Swi z' s')
+
   Ref k -> do
     return (Ref k)
 
@@ -1112,11 +1117,6 @@ alloc_term e holders subs term = case term of
     f' <- alloc_term e holders subs f
     x' <- alloc_term e holders subs x
     return (Dry f' x')
-
-  Swi z s -> do
-    z' <- alloc_term e holders subs z
-    s' <- alloc_term e holders subs s
-    return (Swi z' s')
 
 alloc_var :: Env -> Holders -> Name -> Int -> Term -> IO Term
 alloc_var e holders k tag v = do
@@ -1206,59 +1206,71 @@ collapse :: Env -> Term -> IO Term
 collapse e x = do
   !x' <- wnf e [] x
   case x' of
-    Era -> return Era
+    Era -> do
+      return Era
     Sup l a b -> do
       a' <- collapse e a
       b' <- collapse e b
       return $ Sup l a' b'
-    Set -> return Set
+    Set -> do
+      collapse_inject e Set []
     All a b -> do
-      aV <- fresh e
-      bV <- fresh e
       a' <- collapse e a
       b' <- collapse e b
-      collapse_inject e (Lam aV (Lam bV (All (Var aV) (Var bV)))) [a',b']
+      v0 <- fresh e
+      v1 <- fresh e
+      collapse_inject e (Lam v0 (Lam v1 (All (Var v0) (Var v1)))) [a', b']
     Lam k f -> do
-      fV <- fresh e
       f' <- collapse e f
-      collapse_inject e (Lam fV (Lam k (Var fV))) [f']
-    App f x1 -> do
-      fV <- fresh e
-      xV <- fresh e
+      v0 <- fresh e
+      collapse_inject e (Lam v0 (Lam k (Var v0))) [f']
+    App f a -> do
       f' <- collapse e f
-      x' <- collapse e x1
-      collapse_inject e (Lam fV (Lam xV (App (Var fV) (Var xV)))) [f',x']
-    Nat -> return Nat
-    Zer -> return Zer
-    Suc p -> do
-      pV <- fresh e
-      p' <- collapse e p
-      collapse_inject e (Lam pV (Suc (Var pV))) [p']
+      a' <- collapse e a
+      v0 <- fresh e
+      v1 <- fresh e
+      collapse_inject e (Lam v0 (Lam v1 (App (Var v0) (Var v1)))) [f', a']
+    Nat -> do
+      collapse_inject e Nat []
+    Zer -> do
+      collapse_inject e Zer []
+    Suc k -> do
+      k' <- collapse e k
+      v0 <- fresh e
+      collapse_inject e (Lam v0 (Suc (Var v0))) [k']
     Swi z s -> do
       z' <- collapse e z
       s' <- collapse e s
-      return (Swi z' s')
-    Nam n -> return $ Nam n
-    Dry f x1 -> do
-      fV <- fresh e
-      xV <- fresh e
+      v0 <- fresh e
+      v1 <- fresh e
+      collapse_inject e (Lam v0 (Lam v1 (Swi (Var v0) (Var v1)))) [z', s']
+    Ref k -> do
+      collapse_inject e (Ref k) []
+    Nam n -> do
+      collapse_inject e (Nam n) []
+    Dry f a -> do
       f' <- collapse e f
-      x' <- collapse e x1
-      collapse_inject e (Lam fV (Lam xV (Dry (Var fV) (Var xV)))) [f',x']
-    x'' -> return x''
+      a' <- collapse e a
+      v0 <- fresh e
+      v1 <- fresh e
+      collapse_inject e (Lam v0 (Lam v1 (Dry (Var v0) (Var v1)))) [f', a']
+    x -> do
+      collapse_inject e x []
 
 collapse_inject :: Env -> Term -> [Term] -> IO Term
 collapse_inject e f (x : xs) = do
-  !x' <- wnf e [] x
-  case x' of
+  !x <- wnf e [] x
+  case x of
     Sup l a b -> do
       (f0  , f1 ) <- clone  e l f
       (xs0 , xs1) <- clones e l xs
       a' <- collapse_inject e f0 (a : xs0)
       b' <- collapse_inject e f1 (b : xs1)
       return $ Sup l a' b'
-    x'' -> collapse_inject e (App f x'') xs
-collapse_inject _ f [] = return f
+    x -> do
+      collapse_inject e (App f x) xs
+collapse_inject _ f [] = do
+  return f
 
 -- Equality
 -- ========
@@ -1325,10 +1337,10 @@ equal e d a b = do
 -- ======
 
 max_elim :: Int
-max_elim = 2
+max_elim = 1
 
 max_intr :: Int
-max_intr = 2
+max_intr = 1
 
 rec_intr :: Int
 rec_intr = 1
@@ -1778,12 +1790,16 @@ test = forM_ tests $ \ (src, expd) -> do
     putStrLn $ "  - detected: " ++ det
 
 main :: IO ()
-main = test
--- main = do
-  -- !env <- new_env $ read_book book
-  -- !typ <- return $ All Nat (Lam 0 Nat)
-  -- !val <- gen_lam env 1 0 2 typ (semi_new 0) [] (Nam "F", typ) [] []
+-- main = test
+
+main = do
+  !env <- new_env $ read_book book
+  !typ <- return $ All Nat (Lam 0 Nat)
+  !val <- alloc env IM.empty $ read_term "&L{0,1}"
+  !val <- gen_lam env 1 0 2 typ (semi_new 0) [] (Nam "F", typ) [] []
+  !val <- collapse env val
+  !val <- snf env 1 val
   -- print $ val
-  -- !val <- return $ flatten val
-  -- forM_ val $ \ x -> do
-    -- print $ x
+  !val <- return $ flatten val
+  forM_ val $ \ x -> do
+    print $ x
