@@ -1070,13 +1070,13 @@ clone_list e l (x : xs) = do
 data Frame
   = FDp0   Name Lab -- ! F &L = _; F₀
   | FDp1   Name Lab -- ! F &L = _; F₁
-  | FApp   Term     -- (f x)
-  | FAppF  Term     -- (λ{..} x)
-  | FAppG  Term     -- ((f~>g) x)
-  | FAppGF Term     -- ((f~>λ{..}) x)
-  | FAnd   Term     -- (a && b)
-  | FEql   Term     -- (a == b)
-  | FEqlA  Term     -- (a == b) where a is an introducer
+  | FApp   Term     -- (_ x)
+  | FAppF  Term     -- (λ{..} _)
+  | FAppG  Term     -- ((f~>_) x)
+  | FAppGF Term     -- ((f~>λ{..}) _)
+  | FAnd   Term     -- (_ && b)
+  | FEql   Term     -- (_ == b)
+  | FEqlA  Term     -- (a == _)
 
 type Stack = [Frame]
 
