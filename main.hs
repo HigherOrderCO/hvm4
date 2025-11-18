@@ -2315,6 +2315,11 @@ tests =
   , ("(@ADD @C4 @C1 @NOT @T)", "λa.λb.b")
   , ("(@ADD @C2 @C4 @NOT @T)", "λa.λb.a")
   , ("(@ADD @C4 @C2 @NOT @T)", "λa.λb.a")
+  , ("(@MUL @C4 @C2)", "λa.λb.(a (a (a (a (a (a (a (a b))))))))")
+  , ("(@MUL @C4 @C4)", "λa.λb.(a (a (a (a (a (a (a (a (a (a (a (a (a (a (a (a b))))))))))))))))")
+  , ("(@MUL @C4 @C2 @NOT @T)", "λa.λb.a")
+  , ("(@MUL @C4 @C4 @NOT @T)", "λa.λb.a")
+  , ("(@ADD @C1 (@MUL @C8 @C8) @NOT @T)", "λa.λb.b")
   ]
 
 run :: String -> String -> IO ()
