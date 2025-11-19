@@ -120,31 +120,20 @@ int_to_name n = reverse (go n)
 -- Parsing
 -- =======
 
-lexeme :: ReadP a -> ReadP a
-lexeme p = skipSpaces *> p
+parse_lexeme :: ReadP a -> ReadP a
+parse_lexeme p = skipSpaces *> p
 
 parse_name :: ReadP String
-parse_name = lexeme $ do
+parse_name = parse_lexeme $ do
   head <- satisfy (`elem` alphabet_first)
   tail <- munch (`elem` alphabet)
   return (head : tail)
 
-parse_nam :: ReadP Term
-parse_nam = do
-  lexeme (char '^')
-  choice
-    [ do lexeme (char '('); f <- parse_term; x <- parse_term; lexeme (char ')'); return (Dry f x)
-    , do k <- parse_name; return (Nam k)
-    ]
-
 parse_term :: ReadP Term
-parse_term = do
-  t <- choice [parse_nam, parse_term_base]
-  skipSpaces
-  return t
+parse_term = parse_term_base
 
 parse_term_base :: ReadP Term
-parse_term_base = lexeme $ choice
+parse_term_base = parse_lexeme $ choice
   [ parse_lam
   , parse_dup
   , parse_par
@@ -153,74 +142,94 @@ parse_term_base = lexeme $ choice
   , parse_ctr
   , parse_mat
   , parse_ref
+  , parse_nam
   , parse_var
   ]
 
+parse_nam :: ReadP Term
+parse_nam = do
+  parse_lexeme (char '^')
+  choice [ parse_nam_dry , parse_nam_atom ]
+
+parse_nam_dry :: ReadP Term
+parse_nam_dry = do
+  parse_lexeme (char '(')
+  f <- parse_term
+  x <- parse_term
+  parse_lexeme (char ')')
+  return (Dry f x)
+
+parse_nam_atom :: ReadP Term
+parse_nam_atom = do
+  k <- parse_name
+  return (Nam k)
+
+
 parse_par :: ReadP Term
 parse_par = do
-  lexeme (char '(')
+  parse_lexeme (char '(')
   t <- parse_term
   ts <- many parse_term
-  lexeme (char ')')
+  parse_lexeme (char ')')
   return (foldl' App t ts)
 
 parse_lam :: ReadP Term
 parse_lam = do
-  lexeme (char 'λ')
+  parse_lexeme (char 'λ')
   k <- parse_name
-  lexeme (char '.')
+  parse_lexeme (char '.')
   t <- parse_term
   return (Lam (name_to_int k) t)
 
 parse_dup :: ReadP Term
 parse_dup = do
-  lexeme (char '!')
+  parse_lexeme (char '!')
   k <- parse_name
-  lexeme (char '&')
+  parse_lexeme (char '&')
   l <- parse_name
-  lexeme (char '=')
+  parse_lexeme (char '=')
   v <- parse_term
-  optional (lexeme (char ';'))
+  optional (parse_lexeme (char ';'))
   t <- parse_term
   return (Dup (name_to_int k) (name_to_int l) v t)
 
 parse_sup :: ReadP Term
 parse_sup = do
-  lexeme (char '&')
+  parse_lexeme (char '&')
   l <- parse_name
-  between (lexeme (char '{')) (lexeme (char '}')) $ do
+  between (parse_lexeme (char '{')) (parse_lexeme (char '}')) $ do
     a <- parse_term
-    optional (lexeme (char ','))
+    optional (parse_lexeme (char ','))
     b <- parse_term
     return (Sup (name_to_int l) a b)
 
 parse_era :: ReadP Term
-parse_era = lexeme (string "&{}") >> return Era
+parse_era = parse_lexeme (string "&{}") >> return Era
 
 parse_ctr :: ReadP Term
 parse_ctr = do
-  lexeme (char '#')
+  parse_lexeme (char '#')
   k <- parse_name
-  between (lexeme (char '{')) (lexeme (char '}')) $ do
-    args <- sepBy parse_term (optional (lexeme (char ',')))
+  between (parse_lexeme (char '{')) (parse_lexeme (char '}')) $ do
+    args <- sepBy parse_term (optional (parse_lexeme (char ',')))
     return (Ctr (name_to_int k) args)
 
 parse_mat :: ReadP Term
 parse_mat = do
-  lexeme (char 'λ')
-  between (lexeme (char '{')) (lexeme (char '}')) $ do
-    lexeme (char '#')
+  parse_lexeme (char 'λ')
+  between (parse_lexeme (char '{')) (parse_lexeme (char '}')) $ do
+    parse_lexeme (char '#')
     k <- parse_name
-    lexeme (char ':')
+    parse_lexeme (char ':')
     c <- parse_term
-    optional (lexeme (char ';'))
+    optional (parse_lexeme (char ';'))
     d <- parse_term
-    optional (lexeme (char ';'))
+    optional (parse_lexeme (char ';'))
     return (Mat (name_to_int k) c d)
 
 parse_ref :: ReadP Term
 parse_ref = do
-  lexeme (char '@')
+  parse_lexeme (char '@')
   k <- parse_name
   return (Ref (name_to_int k))
 
@@ -236,9 +245,9 @@ parse_var = do
 
 parse_func :: ReadP (Name, Term)
 parse_func = do
-  lexeme (char '@')
+  parse_lexeme (char '@')
   k <- parse_name
-  lexeme (char '=')
+  parse_lexeme (char '=')
   f <- parse_term
   return (name_to_int k, f)
 
