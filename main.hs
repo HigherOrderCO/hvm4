@@ -1,4 +1,4 @@
---[./../spec.md]
+--[./README.md]
 
 {-# LANGUAGE BangPatterns, CPP #-}
 
