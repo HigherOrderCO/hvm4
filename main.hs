@@ -592,7 +592,7 @@ wnf e term = do
             Bol   -> wnf_dup_bol s e k l v
             Fal   -> wnf_dup_fal s e k l v
             Tru   -> wnf_dup_tru s e k l v
-            If{}  -> wnf_dup_if s e k l v
+            If{}  -> wnf_dup_if  s e k l v
             Lst{} -> wnf_dup_lst s e k l v
             Nil   -> wnf_dup_nil s e k l v
             Con{} -> wnf_dup_con s e k l v
