@@ -348,16 +348,16 @@ wnf e term = do
             Ctr{} -> wnf_dup_ctr s e k l v
             Mat{} -> wnf_dup_mat s e k l v
             _     -> return (Dup k l v (Cop s k))
-        Nothing     -> do
+        Nothing -> do
           wnf_cop s e k
     App f x -> do
       f <- wnf e f
       case f of
-        Era     -> wnf_app_era e f x
-        Sup{}   -> wnf_app_sup e f x
-        Lam{}   -> wnf_app_lam e f x
-        Nam{}   -> wnf_app_nam e f x
-        Dry{}   -> wnf_app_dry e f x
+        Era   -> wnf_app_era e f x
+        Sup{} -> wnf_app_sup e f x
+        Lam{} -> wnf_app_lam e f x
+        Nam{} -> wnf_app_nam e f x
+        Dry{} -> wnf_app_dry e f x
         Mat k h m -> do
           x <- wnf e x
           case x of
@@ -365,7 +365,7 @@ wnf e term = do
             Sup{}    -> wnf_app_mat_sup e f x
             Ctr k' a -> wnf_app_mat_ctr e f k h m k' a
             _        -> return (App f x)
-        _       -> return (App f x)
+        _ -> return (App f x)
     Dup k l v t -> do
       make_dup e k l v
       wnf e t
@@ -393,41 +393,11 @@ wnf_cop i e k = do
     Just t  -> wnf e t
     Nothing -> return $ Cop i k
 
-wnf_dup_0 :: Int -> Env -> Name -> Term -> IO Term
-wnf_dup_0 i e k v = do
-  inc_inters e
-  if i == 0 then do
-    subst e k v
-    wnf e v
-  else do
-    subst e k v
-    wnf e v
-
-wnf_dup_1 :: Int -> Env -> Name -> Lab -> Term -> (Term -> Term) -> IO Term
-wnf_dup_1 i e k l v1 c = do
-  inc_inters e
-  (v1a, v1b) <- clone e l v1
-  if i == 0 then do
-    subst e k (c v1b)
-    wnf e (c v1a)
-  else do
-    subst e k (c v1a)
-    wnf e (c v1b)
-
-wnf_dup_2 :: Int -> Env -> Name -> Lab -> Term -> Term -> (Term -> Term -> Term) -> IO Term
-wnf_dup_2 i e k l v1 v2 c = do
-  inc_inters e
-  (v1a, v1b) <- clone e l v1
-  (v2a, v2b) <- clone e l v2
-  if i == 0 then do
-    subst e k (c v1b v2b)
-    wnf e (c v1a v2a)
-  else do
-    subst e k (c v1a v2a)
-    wnf e (c v1b v2b)
-
 wnf_dup_era :: WnfDup
-wnf_dup_era i e k _ Era = wnf_dup_0 i e k Era
+wnf_dup_era i e k _ Era = do
+  inc_inters e
+  subst e k Era
+  wnf e Era
 
 wnf_dup_sup :: WnfDup
 wnf_dup_sup i e k l (Sup vl va vb)
@@ -440,7 +410,15 @@ wnf_dup_sup i e k l (Sup vl va vb)
         subst e k va
         wnf e vb
   | otherwise = do
-      wnf_dup_2 i e k l va vb (Sup vl)
+      inc_inters e
+      (va0, va1) <- clone e l va
+      (vb0, vb1) <- clone e l vb
+      if i == 0 then do
+        subst e k (Sup vl va1 vb1)
+        wnf e (Sup vl va0 vb0)
+      else do
+        subst e k (Sup vl va0 vb0)
+        wnf e (Sup vl va1 vb1)
 
 wnf_dup_lam :: WnfDup
 wnf_dup_lam i e k l (Lam vk vf) = do
@@ -457,10 +435,22 @@ wnf_dup_lam i e k l (Lam vk vf) = do
     wnf e (Lam x1 g1)
 
 wnf_dup_nam :: WnfDup
-wnf_dup_nam i e k _ (Nam n) = wnf_dup_0 i e k (Nam n)
+wnf_dup_nam i e k _ (Nam n) = do
+  inc_inters e
+  subst e k (Nam n)
+  wnf e (Nam n)
 
 wnf_dup_dry :: WnfDup
-wnf_dup_dry i e k l (Dry vf vx) = wnf_dup_2 i e k l vf vx Dry
+wnf_dup_dry i e k l (Dry vf vx) = do
+  inc_inters e
+  (vf0, vf1) <- clone e l vf
+  (vx0, vx1) <- clone e l vx
+  if i == 0 then do
+    subst e k (Dry vf1 vx1)
+    wnf e (Dry vf0 vx0)
+  else do
+    subst e k (Dry vf0 vx0)
+    wnf e (Dry vf1 vx1)
 
 wnf_dup_ctr :: WnfDup
 wnf_dup_ctr i e k l (Ctr kn args) = do
