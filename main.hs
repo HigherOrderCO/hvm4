@@ -2,7 +2,7 @@ import Control.Monad (forM_, when)
 import Data.Bits (shiftL)
 import Data.Char (isDigit)
 import Data.IORef
-import Data.List (foldl', elemIndex)
+import Data.List (foldl', elemIndex, intercalate)
 import System.CPUTime
 import Text.ParserCombinators.ReadP
 import Text.Printf
@@ -36,16 +36,16 @@ data Term
 data Book = Book (M.Map Name Term)
 
 data Env = Env
-  { env_book    :: !Book
-  , env_inters  :: !(IORef Int)
-  , env_new_id  :: !(IORef Int)
-  , env_sub_map :: !(IORef (IM.IntMap Term))
-  , env_dup_map :: !(IORef (IM.IntMap (Lab, Term)))
+  { env_book  :: !Book
+  , env_itrs  :: !(IORef Int)
+  , env_fresh :: !(IORef Int)
+  , env_subst :: !(IORef (IM.IntMap Term))
+  , env_dups  :: !(IORef (IM.IntMap (Lab, Term)))
   }
 
 -- Showing
 -- =======
-
+-- 
 instance Show Term where
   show (Var k)       = int_to_name k
   show (Cop s k)     = int_to_name k ++ (if s == 0 then "₀" else "₁")
@@ -57,27 +57,22 @@ instance Show Term where
   show (Dup k l v t) = "!" ++ int_to_name k ++ "&" ++ int_to_name l ++ "=" ++ show v ++ ";" ++ show t
   show (Lam k f)     = "λ" ++ int_to_name k ++ "." ++ show f
   show (App f x)     = show_app f [x]
-  show (Ctr k args)  = "#" ++ int_to_name k ++ "{" ++ show_terms args ++ "}"
+  show (Ctr k xs)    = "#" ++ int_to_name k ++ "{" ++ intercalate "," (map show xs) ++ "}"
   show (Mat k h m)   = "λ{#" ++ int_to_name k ++ ":" ++ show h ++ ";" ++ show m ++ "}"
 
-show_terms :: [Term] -> String
-show_terms []     = ""
-show_terms [t]    = show t
-show_terms (t:ts) = show t ++ "," ++ show_terms ts
-
 show_app :: Term -> [Term] -> String
-show_app (Dry f x) args = show_app f (x : args)
-show_app (App f x) args = show_app f (x : args)
-show_app f         args = "(" ++ unwords (map show (f : args)) ++ ")"
+show_app (Dry f x) xs = show_app f (x : xs)
+show_app (App f x) xs = show_app f (x : xs)
+show_app f         xs = "(" ++ unwords (map show (f : xs)) ++ ")"
 
 instance Show Book where
   show (Book m) = unlines [ "@" ++ int_to_name k ++ " = " ++ show ct | (k, ct) <- M.toList m ]
 
-show_dup_map :: IM.IntMap (Lab, Term) -> String
-show_dup_map m = unlines [ "! " ++ int_to_name k ++ " &" ++ int_to_name l ++ " = " ++ show v | (k, (l, v)) <- IM.toList m ]
+show_dups  :: IM.IntMap (Lab, Term) -> String
+show_dups  m = unlines [ "! " ++ int_to_name k ++ " &" ++ int_to_name l ++ " = " ++ show v | (k, (l, v)) <- IM.toList m ]
 
-show_sub_map :: IM.IntMap Term -> String
-show_sub_map m = unlines [ int_to_name (k `div` 4) ++ suffix (k `mod` 4) ++ " ← " ++ show v | (k, v) <- IM.toList m ]
+show_subst :: IM.IntMap Term -> String
+show_subst m = unlines [ int_to_name (k `div` 4) ++ suffix (k `mod` 4) ++ " ← " ++ show v | (k, v) <- IM.toList m ]
   where suffix x = case x of { 0 -> "" ; 1 -> "₀" ; 2 -> "₁" ; _ -> "?" }
 
 -- Name Encoding/Decoding
@@ -219,9 +214,9 @@ parse_ctr = do
   choice
     [ do
         parse_lexeme (char '{')
-        args <- sepBy parse_term (parse_lexeme (char ','))
+        xs <- sepBy parse_term (parse_lexeme (char ','))
         parse_lexeme (char '}')
-        return (Ctr (name_to_int k) args)
+        return (Ctr (name_to_int k) xs)
     , return (Ctr (name_to_int k) [])
     ]
 
@@ -283,28 +278,28 @@ new_env bk = do
   dm  <- newIORef IM.empty
   return $ Env bk itr ids sub dm
 
-inc_inters :: Env -> IO ()
-inc_inters e = do
-  !n <- readIORef (env_inters e)
-  writeIORef (env_inters e) (n + 1)
+inc_itrs :: Env -> IO ()
+inc_itrs e = do
+  !n <- readIORef (env_itrs e)
+  writeIORef (env_itrs e) (n + 1)
 
 fresh :: Env -> IO Name
 fresh e = do
-  !n <- readIORef (env_new_id e)
-  writeIORef (env_new_id e) (n + 1)
+  !n <- readIORef (env_fresh e)
+  writeIORef (env_fresh e) (n + 1)
   return ((n `shiftL` 6) + 63)
 
 take_dup :: Env -> Name -> IO (Maybe (Lab, Term))
-take_dup e k = atomicModifyIORef' (env_dup_map e) $ \m -> (IM.delete k m, IM.lookup k m)
+take_dup e k = atomicModifyIORef' (env_dups  e) $ \m -> (IM.delete k m, IM.lookup k m)
 
 take_sub :: Env -> Name -> IO (Maybe Term)
-take_sub e k = atomicModifyIORef' (env_sub_map e) $ \m -> (IM.delete k m, IM.lookup k m)
+take_sub e k = atomicModifyIORef' (env_subst e) $ \m -> (IM.delete k m, IM.lookup k m)
 
 make_dup :: Env -> Name -> Lab -> Term -> IO ()
-make_dup e k l v = modifyIORef' (env_dup_map e) (IM.insert k (l, v))
+make_dup e k l v = modifyIORef' (env_dups  e) (IM.insert k (l, v))
 
 subst :: Env -> Name -> Term -> IO ()
-subst e k v = modifyIORef' (env_sub_map e) (IM.insert k v)
+subst e k v = modifyIORef' (env_subst e) (IM.insert k v)
 
 -- Cloning
 -- =======
@@ -395,14 +390,14 @@ wnf_cop i e k = do
 
 wnf_dup_era :: WnfDup
 wnf_dup_era i e k _ Era = do
-  inc_inters e
+  inc_itrs e
   subst e k Era
   wnf e Era
 
 wnf_dup_sup :: WnfDup
 wnf_dup_sup i e k l (Sup vl va vb)
   | l == vl = do
-      inc_inters e
+      inc_itrs e
       if i == 0 then do
         subst e k vb
         wnf e va
@@ -410,7 +405,7 @@ wnf_dup_sup i e k l (Sup vl va vb)
         subst e k va
         wnf e vb
   | otherwise = do
-      inc_inters e
+      inc_itrs e
       (va0, va1) <- clone e l va
       (vb0, vb1) <- clone e l vb
       if i == 0 then do
@@ -422,7 +417,7 @@ wnf_dup_sup i e k l (Sup vl va vb)
 
 wnf_dup_lam :: WnfDup
 wnf_dup_lam i e k l (Lam vk vf) = do
-  inc_inters e
+  inc_itrs e
   x0      <- fresh e
   x1      <- fresh e
   (g0,g1) <- clone e l vf
@@ -436,13 +431,13 @@ wnf_dup_lam i e k l (Lam vk vf) = do
 
 wnf_dup_nam :: WnfDup
 wnf_dup_nam i e k _ (Nam n) = do
-  inc_inters e
+  inc_itrs e
   subst e k (Nam n)
   wnf e (Nam n)
 
 wnf_dup_dry :: WnfDup
 wnf_dup_dry i e k l (Dry vf vx) = do
-  inc_inters e
+  inc_itrs e
   (vf0, vf1) <- clone e l vf
   (vx0, vx1) <- clone e l vx
   if i == 0 then do
@@ -453,19 +448,19 @@ wnf_dup_dry i e k l (Dry vf vx) = do
     wnf e (Dry vf1 vx1)
 
 wnf_dup_ctr :: WnfDup
-wnf_dup_ctr i e k l (Ctr kn args) = do
-  inc_inters e
-  (argsA, argsB) <- clone_list e l args
+wnf_dup_ctr i e k l (Ctr kn xs) = do
+  inc_itrs e
+  (xsA, xsB) <- clone_list e l xs
   if i == 0 then do
-    subst e k (Ctr kn argsB)
-    wnf e (Ctr kn argsA)
+    subst e k (Ctr kn xsB)
+    wnf e (Ctr kn xsA)
   else do
-    subst e k (Ctr kn argsA)
-    wnf e (Ctr kn argsB)
+    subst e k (Ctr kn xsA)
+    wnf e (Ctr kn xsB)
 
 wnf_dup_mat :: WnfDup
 wnf_dup_mat i e k l (Mat kn h m) = do
-  inc_inters e
+  inc_itrs e
   (hA, hB) <- clone e l h
   (mA, mB) <- clone e l m
   if i == 0 then do
@@ -477,7 +472,7 @@ wnf_dup_mat i e k l (Mat kn h m) = do
 
 wnf_app_era :: WnfApp
 wnf_app_era e Era v = do
-  inc_inters e
+  inc_itrs e
   wnf e Era
 
 wnf_app_nam :: WnfApp
@@ -488,42 +483,42 @@ wnf_app_dry e (Dry ff fx) v = wnf e (Dry (Dry ff fx) v)
 
 wnf_app_lam :: WnfApp
 wnf_app_lam e (Lam fx ff) v = do
-  inc_inters e
+  inc_itrs e
   subst e fx v
   wnf e ff
 
 wnf_app_sup :: WnfApp
 wnf_app_sup e (Sup fL fa fb) v = do
-  inc_inters e
+  inc_itrs e
   (x0,x1) <- clone e fL v
   wnf e (Sup fL (App fa x0) (App fb x1))
 
 wnf_app_mat_era :: WnfApp
 wnf_app_mat_era e f x = do
-  inc_inters e
+  inc_itrs e
   wnf e Era
 
 wnf_app_mat_sup :: WnfApp
 wnf_app_mat_sup e (Mat k h m) (Sup l x y) = do
-  inc_inters e
+  inc_itrs e
   (h0, h1) <- clone e l h
   (m0, m1) <- clone e l m
   wnf e (Sup l (App (Mat k h0 m0) x) (App (Mat k h1 m1) y))
 
 wnf_app_mat_ctr :: Env -> Term -> Int -> Term -> Term -> Int -> [Term] -> IO Term
-wnf_app_mat_ctr e f k h m k' args = do
-  inc_inters e
+wnf_app_mat_ctr e f k h m k' xs = do
+  inc_itrs e
   if k == k' then do
-    wnf e (foldl' App h args)
+    wnf e (foldl' App h xs)
   else do
-    wnf e (App m (Ctr k' args))
+    wnf e (App m (Ctr k' xs))
 
 wnf_ref :: Env -> Name -> IO Term
 wnf_ref e k = do
   let (Book m) = env_book e
   case M.lookup k m of
     Just f  -> do
-      inc_inters e
+      inc_itrs e
       g <- alloc e f
       wnf e g
     Nothing -> error $ "UndefinedReference: " ++ int_to_name k
@@ -578,9 +573,9 @@ alloc e term = go IM.empty term where
     f' <- go (IM.insert k k' m) f
     return $ Lam k' f'
     
-  go m (Ctr k args) = do
-    args' <- mapM (go m) args
-    return $ Ctr k args'
+  go m (Ctr k xs) = do
+    xs' <- mapM (go m) xs
+    return $ Ctr k xs'
 
   go m (Mat k h miss) = do
     h' <- go m h
@@ -633,9 +628,9 @@ snf e d x = do
       x' <- snf e d x
       return $ Dry f' x'
 
-    Ctr k args -> do
-      args' <- mapM (snf e d) args
-      return $ Ctr k args'
+    Ctr k xs -> do
+      xs' <- mapM (snf e d) xs
+      return $ Ctr k xs'
 
     Mat k h m -> do
       h' <- snf e d h
@@ -680,9 +675,9 @@ collapse e x = do
       x' <- collapse e x
       inject e (Lam fV (Lam xV (Dry (Var fV) (Var xV)))) [f', x']
 
-    Ctr k args -> do
-      vs <- mapM (\_ -> fresh e) args
-      as <- mapM (collapse e) args
+    Ctr k xs -> do
+      vs <- mapM (\_ -> fresh e) xs
+      as <- mapM (collapse e) xs
       inject e (foldr Lam (Ctr k (map Var vs)) vs) as
 
     Mat k h m -> do
@@ -713,9 +708,8 @@ flatten :: Term -> [Term]
 flatten term = bfs [term] [] where
   bfs []     acc = reverse acc
   bfs (t:ts) acc = case t of
-    Sup _ a b  -> bfs (ts ++ [a, b]) acc
-    Ctr _ args -> bfs (ts ++ args) acc
-    _          -> bfs ts (t : acc)
+    Sup _ a b -> bfs (ts ++ [a, b]) acc
+    _         -> bfs ts (t : acc)
 
 -- Tests
 -- =====
@@ -791,7 +785,7 @@ test = forM_ tests $ \ (src, exp) -> do
   !env <- new_env $ read_book book
   !det <- collapse env $ read_term src
   !det <- show <$> snf env 1 det
-  !itr <- readIORef (env_inters env)
+  !itr <- readIORef (env_itrs env)
   if det == exp then do
     putStrLn $ "[PASS] " ++ src ++ " → " ++ det ++ " | #" ++ show itr
   else do
@@ -810,7 +804,7 @@ run book_src term_src = do
   !val <- collapse env val
   !val <- snf env 1 val
   !end <- getCPUTime
-  !itr <- readIORef (env_inters env)
+  !itr <- readIORef (env_itrs env)
   !dt  <- return $ fromIntegral (end - ini) / (10^12)
   !ips <- return $ fromIntegral itr / dt
   putStrLn $ show val
