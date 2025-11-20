@@ -558,13 +558,6 @@ clone e l v = do
   make_dup e k l v
   return $ (Dp0 k , Dp1 k)
 
-clone_list :: Env -> Lab -> [Term] -> IO ([Term],[Term])
-clone_list e l []       = return $ ([],[])
-clone_list e l (x : xs) = do
-  (x0  , x1 ) <- clone e l x
-  (xs0 , xs1) <- clone_list e l xs
-  return $ (x0 : xs0 , x1 : xs1)
-
 -- WNF: Weak Normal Form
 -- =====================
 
@@ -1728,19 +1721,19 @@ collapse e x = do
       bV <- fresh e
       a' <- collapse e a
       b' <- collapse e b
-      inject e (Lam aV (Lam bV (All (Var aV) (Var bV)))) [a',b']
+      inject e (Lam aV (Lam bV (All (Var aV) (Var bV)))) (Con a' (Con b' Nil))
 
     (Lam k f) -> do
       fV <- fresh e
       f' <- collapse e f
-      inject e (Lam fV (Lam k (Var fV))) [f']
+      inject e (Lam fV (Lam k (Var fV))) (Con f' Nil)
 
     (App f x) -> do
       fV <- fresh e
       xV <- fresh e
       f' <- collapse e f
       x' <- collapse e x
-      inject e (Lam fV (Lam xV (App (Var fV) (Var xV)))) [f',x']
+      inject e (Lam fV (Lam xV (App (Var fV) (Var xV)))) (Con f' (Con x' Nil))
 
     Nat -> do
       return Nat
@@ -1751,28 +1744,28 @@ collapse e x = do
     (Suc p) -> do
       pV <- fresh e
       p' <- collapse e p
-      inject e (Lam pV (Suc (Var pV))) [p']
+      inject e (Lam pV (Suc (Var pV))) (Con p' Nil)
 
     (Swi z s) -> do
       zV <- fresh e
       sV <- fresh e
       z' <- collapse e z
       s' <- collapse e s
-      inject e (Lam zV (Lam sV (Swi (Var zV) (Var sV)))) [z',s']
+      inject e (Lam zV (Lam sV (Swi (Var zV) (Var sV)))) (Con z' (Con s' Nil))
 
     (And a b) -> do
       aV <- fresh e
       bV <- fresh e
       a' <- collapse e a
       b' <- collapse e b
-      inject e (Lam aV (Lam bV (And (Var aV) (Var bV)))) [a',b']
+      inject e (Lam aV (Lam bV (And (Var aV) (Var bV)))) (Con a' (Con b' Nil))
 
     (Eql a b) -> do
       aV <- fresh e
       bV <- fresh e
       a' <- collapse e a
       b' <- collapse e b
-      inject e (Lam aV (Lam bV (Eql (Var aV) (Var bV)))) [a',b']
+      inject e (Lam aV (Lam bV (Eql (Var aV) (Var bV)))) (Con a' (Con b' Nil))
 
     Nam n -> do
       return $ Nam n
@@ -1782,7 +1775,7 @@ collapse e x = do
       xV <- fresh e
       f' <- collapse e f
       x' <- collapse e x
-      inject e (Lam fV (Lam xV (Dry (Var fV) (Var xV)))) [f',x']
+      inject e (Lam fV (Lam xV (Dry (Var fV) (Var xV)))) (Con f' (Con x' Nil))
 
     (Gua f g) -> do
       collapse e g
@@ -1792,19 +1785,19 @@ collapse e x = do
       bV <- fresh e
       a' <- collapse e a
       b' <- collapse e b
-      inject e (Lam aV (Lam bV (Sig (Var aV) (Var bV)))) [a',b']
+      inject e (Lam aV (Lam bV (Sig (Var aV) (Var bV)))) (Con a' (Con b' Nil))
 
     Tup a b -> do
       aV <- fresh e
       bV <- fresh e
       a' <- collapse e a
       b' <- collapse e b
-      inject e (Lam aV (Lam bV (Tup (Var aV) (Var bV)))) [a',b']
+      inject e (Lam aV (Lam bV (Tup (Var aV) (Var bV)))) (Con a' (Con b' Nil))
 
     Get c -> do
       cV <- fresh e
       c' <- collapse e c
-      inject e (Lam cV (Get (Var cV))) [c']
+      inject e (Lam cV (Get (Var cV))) (Con c' Nil)
 
     Emp -> do
       return Emp
@@ -1821,7 +1814,7 @@ collapse e x = do
     Use u -> do
       uV <- fresh e
       u' <- collapse e u
-      inject e (Lam uV (Use (Var uV))) [u']
+      inject e (Lam uV (Use (Var uV))) (Con u' Nil)
 
     Bol -> do
       return Bol
@@ -1837,12 +1830,12 @@ collapse e x = do
       tV <- fresh e
       f' <- collapse e f
       t' <- collapse e t
-      inject e (Lam fV (Lam tV (If (Var fV) (Var tV)))) [f',t']
+      inject e (Lam fV (Lam tV (If (Var fV) (Var tV)))) (Con f' (Con t' Nil))
 
     Lst t -> do
       tV <- fresh e
       t' <- collapse e t
-      inject e (Lam tV (Lst (Var tV))) [t']
+      inject e (Lam tV (Lst (Var tV))) (Con t' Nil)
 
     Nil -> do
       return Nil
@@ -1852,32 +1845,39 @@ collapse e x = do
       tV <- fresh e
       h' <- collapse e h
       t' <- collapse e t
-      inject e (Lam hV (Lam tV (Con (Var hV) (Var tV)))) [h',t']
+      inject e (Lam hV (Lam tV (Con (Var hV) (Var tV)))) (Con h' (Con t' Nil))
 
     Mat n c -> do
       nV <- fresh e
       cV <- fresh e
       n' <- collapse e n
       c' <- collapse e c
-      inject e (Lam nV (Lam cV (Mat (Var nV) (Var cV)))) [n',c']
+      inject e (Lam nV (Lam cV (Mat (Var nV) (Var cV)))) (Con n' (Con c' Nil))
 
     x -> do
       return $ x
 
-inject :: Env -> Term -> [Term] -> IO Term
-inject e f (x : xs) = do
-  !x' <- wnf e [] x
-  case x' of
-    (Sup l a b) -> do
-      (f0  , f1 ) <- clone e l f
-      (xs0 , xs1) <- clone_list e l xs
-      a' <- inject e f0 (a : xs0)
-      b' <- inject e f1 (b : xs1)
-      return $ Sup l a' b'
-    x' -> do
-      inject e (App f x') xs
-inject e f [] = do
-  return $ f
+inject :: Env -> Term -> Term -> IO Term
+inject e f xs = do
+  !xs <- wnf e [] xs
+  case xs of
+    Era -> do
+      error "TODO"
+    Sup xsl xsa xsb -> do
+      error "TODO"
+    Nil -> do
+      return $ f
+    Con h t -> do
+      !h <- wnf e [] h
+      case h of
+        (Sup l a b) -> do
+          (f0,f1) <- clone e l f
+          (t0,t1) <- clone e l t
+          a <- inject e f0 (Con a t0)
+          b <- inject e f1 (Con b t1)
+          return $ Sup l a b
+        h -> do
+          inject e (App f h) t
 
 flatten :: Term -> [Term]
 flatten term = bfs [term] [] where
