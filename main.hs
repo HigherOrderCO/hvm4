@@ -211,14 +211,10 @@ parse_ctr :: ReadP Term
 parse_ctr = do
   parse_lexeme (char '#')
   k <- parse_name
-  choice
-    [ do
-        parse_lexeme (char '{')
-        xs <- sepBy parse_term (parse_lexeme (char ','))
-        parse_lexeme (char '}')
-        return (Ctr (name_to_int k) xs)
-    , return (Ctr (name_to_int k) [])
-    ]
+  parse_lexeme (char '{')
+  xs <- sepBy parse_term (parse_lexeme (char ','))
+  parse_lexeme (char '}')
+  return (Ctr (name_to_int k) xs)
 
 parse_nam :: ReadP Term
 parse_nam = do
