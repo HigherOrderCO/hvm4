@@ -1,9 +1,14 @@
+{-# LANGUAGE CPP #-}
+
 import Control.Monad (forM_, when)
 import Data.Bits (shiftL)
 import Data.Char (isDigit)
 import Data.IORef
 import Data.List (foldl', elemIndex, intercalate)
 import System.CPUTime
+import System.Environment (getArgs)
+import System.Exit (exitFailure)
+import System.IO (hPutStrLn, stderr)
 import Text.ParserCombinators.ReadP
 import Text.Printf
 import qualified Data.IntMap.Strict as IM
@@ -707,106 +712,232 @@ flatten term = bfs [term] [] where
     Sup _ a b -> bfs (ts ++ [a, b]) acc
     _         -> bfs ts (t : acc)
 
--- Tests
--- =====
+-- Evaluation
+-- ==========
 
-num :: Int -> String
-num 0 = "#Z{}"
-num n = "#S{" ++ num (n - 1) ++ "}"
+data EvalResult = EvalResult
+  { eval_value :: !Term
+  , eval_itrs  :: !Int
+  , eval_time  :: !Double
+  , eval_perf  :: !Double
+  }
 
-f :: Int -> String
-f n = "λf." ++ dups ++ final where
-  dups  = concat [dup i | i <- [0..n-1]]
-  dup 0 = "!F00&A=f;"
-  dup i = "!F" ++ pad i ++ "&A=λx" ++ pad (i-1) ++ ".(F" ++ pad (i-1) ++ "₀ (F" ++ pad (i-1) ++ "₁ x" ++ pad (i-1) ++ "));"
-  final = "λx" ++ pad (n-1) ++ ".(F" ++ pad (n-1) ++ "₀ (F" ++ pad (n-1) ++ "₁ x" ++ pad (n-1) ++ "))"
-  pad x = if x < 10 then "0" ++ show x else show x
-
-book :: String
-book = unlines
-  [ "@T    = λt. λf. t"
-  , "@F    = λt. λf. f"
-  , "@NOT  = λb. λt. λf. (b f t)"
-  , "@ADD  = λa. λb. λs. λz. !S&B=s; (a S₀ (b S₁ z))"
-  , "@MUL  = λa. λb. λs. λz. (a (b s) z)"
-  , "@EXP  = λa. λb. (b a)"
-  , "@C1   = λs. λx. (s x)"
-  , "@K1   = λs. λx. (s x)"
-  , "@C2   = λs. !S0&C=s; λx0.(S0₀ (S0₁ x0))"
-  , "@K2   = λs. !S0&K=s; λx0.(S0₀ (S0₁ x0))"
-  , "@C4   = λs. !S0&C=s; !S1&C=λx0.(S0₀ (S0₁ x0)); λx1.(S1₀ (S1₁ x1))"
-  , "@K4   = λs. !S0&K=s; !S1&K=λx0.(S0₀ (S0₁ x0)); !S2&K=λx1.(S1₀ (S1₁ x1)); λx3.(S2₀ (S2₁ x3))"
-  , "@C8   = λs. !S0&C=s; !S1&C=λx0.(S0₀ (S0₁ x0)); !S2&C=λx1.(S1₀ (S1₁ x1)); λx3.(S2₀ (S2₁ x3))"
-  , "@K8   = λs. !S0&K=s; !S1&K=λx0.(S0₀ (S0₁ x0)); !S2&K=λx1.(S1₀ (S1₁ x1)); λx3.(S2₀ (S2₁ x3))"
-  , "@ZN   = #Z{}"
-  , "@SN   = λn. #S{n}"
-  ]
-
-tests :: [(String,String)]
-tests =
-  [ (num 0, num 0)
-  , ("("++f 2++" λX.(X λT0.λF0.F0 λT1.λF1.T1) λT2.λF2.T2)", "λa.λb.a")
-  , ("#S{&L{" ++ num 0 ++ "," ++ num 1 ++ "}}", "&L{" ++ num 1 ++ "," ++ num 2 ++ "}")
-  , ("#S{&A{&B{" ++ num 0 ++ "," ++ num 1 ++ "},&C{" ++ num 2 ++ "," ++ num 3 ++ "}}}", "&A{&B{" ++ num 1 ++ "," ++ num 2 ++ "},&C{" ++ num 3 ++ "," ++ num 4 ++ "}}")
-  , ("λa.!A&L=a;&L{A₀,A₁}", "&L{λa.a,λa.a}")
-  , ("λa.λb.!A&L=a;!B&L=b;&L{λx.(x A₀ B₀),λx.(x A₁ B₁)}", "&L{λa.λb.λc.(c a b),λa.λb.λc.(c a b)}")
-  , ("λt.(t &A{" ++ num 1 ++ "," ++ num 2 ++ "} " ++ num 3 ++ ")", "&A{λa.(a " ++ num 1 ++ " " ++ num 3 ++ "),λa.(a " ++ num 2 ++ " " ++ num 3 ++ ")}")
-  , ("λt.(t " ++ num 1 ++ " &B{" ++ num 3 ++ "," ++ num 4 ++ "})", "&B{λa.(a " ++ num 1 ++ " " ++ num 3 ++ "),λa.(a " ++ num 1 ++ " " ++ num 4 ++ ")}")
-  , ("λt.(t &A{" ++ num 1 ++ "," ++ num 2 ++ "} &A{" ++ num 3 ++ "," ++ num 4 ++ "})", "&A{λa.(a " ++ num 1 ++ " " ++ num 3 ++ "),λa.(a " ++ num 2 ++ " " ++ num 4 ++ ")}")
-  , ("λt.(t &A{" ++ num 1 ++ "," ++ num 2 ++ "} &B{" ++ num 3 ++ "," ++ num 4 ++ "})", "&A{&B{λa.(a " ++ num 1 ++ " " ++ num 3 ++ "),λa.(a " ++ num 1 ++ " " ++ num 4 ++ ")},&B{λa.(a " ++ num 2 ++ " " ++ num 3 ++ "),λa.(a " ++ num 2 ++ " " ++ num 4 ++ ")}}")
-  , ("(@NOT @T)", "λa.λb.b")
-  , ("(@NOT (@NOT @T))", "λa.λb.a")
-  , ("(@C2 @NOT @T)", "λa.λb.a")
-  , ("(@ADD @C2 @C1)", "λa.λb.(a (a (a b)))")
-  , ("(@ADD @C1 λf.λx.(f x) @NOT)", "λa.λb.λc.(a b c)")
-  , ("(@ADD @C1 @C1 @NOT)", "λa.λb.λc.(a b c)")
-  , ("(@ADD @C2 @C2)", "λa.λb.(a (a (a (a b))))")
-  , ("(@ADD @C4 @C1)", "λa.λb.(a (a (a (a (a b)))))")
-  , ("(@ADD @C1 @C4)", "λa.λb.(a (a (a (a (a b)))))")
-  , ("(@ADD @C4 @C4)", "λa.λb.(a (a (a (a (a (a (a (a b))))))))")
-  , ("(@ADD @C1 @C4 @NOT @T)", "λa.λb.b")
-  , ("(@ADD @C4 @C1 @NOT @T)", "λa.λb.b")
-  , ("(@ADD @C2 @C4 @NOT @T)", "λa.λb.a")
-  , ("(@ADD @C4 @C2 @NOT @T)", "λa.λb.a")
-  , ("(@MUL @C4 @C2)", "λa.λb.(a (a (a (a (a (a (a (a b))))))))")
-  , ("(@MUL @C4 @C4)", "λa.λb.(a (a (a (a (a (a (a (a (a (a (a (a (a (a (a (a b))))))))))))))))")
-  , ("(@MUL @C4 @C2 @NOT @T)", "λa.λb.a")
-  , ("(@MUL @C4 @C4 @NOT @T)", "λa.λb.a")
-  , ("(@EXP @C4 @K2)", "λa.λb.(a (a (a (a (a (a (a (a (a (a (a (a (a (a (a (a b))))))))))))))))")
-  , ("(@C8 @K8 @NOT @T)", "λa.λb.a")
-  ]
-
-test :: IO ()
-test = forM_ tests $ \ (src, exp) -> do
-  !env <- new_env $ read_book book
-  !det <- collapse env $ read_term src
-  !det <- show <$> snf env 1 det
-  !itr <- readIORef (env_itrs env)
-  if det == exp then do
-    putStrLn $ "[PASS] " ++ src ++ " → " ++ det ++ " | #" ++ show itr
-  else do
-    putStrLn $ "[FAIL] " ++ src
-    putStrLn $ "  - expected: " ++ exp
-    putStrLn $ "  - detected: " ++ det
-
--- Main
--- ====
-
-run :: String -> String -> IO ()
-run book_src term_src = do
-  !env <- new_env $ read_book book_src
+eval_term :: Book -> Term -> IO EvalResult
+eval_term bk term = do
+  !env <- new_env bk
   !ini <- getCPUTime
-  !val <- alloc env $ read_term term_src
+  !val <- alloc env term
   !val <- collapse env val
   !val <- snf env 1 val
   !end <- getCPUTime
   !itr <- readIORef (env_itrs env)
-  !dt  <- return $ fromIntegral (end - ini) / (10^12)
-  !ips <- return $ fromIntegral itr / dt
-  putStrLn $ show val
-  putStrLn $ "- Itrs: " ++ show itr ++ " interactions"
-  printf "- Time: %.3f seconds\n" (dt :: Double)
-  printf "- Perf: %.2f M interactions/s\n" (ips / 1000000 :: Double)
+  let !dt  = fromIntegral (end - ini) / (10 ^ 12)
+      !ips = fromIntegral itr / dt
+  return EvalResult
+    { eval_value = val
+    , eval_itrs  = itr
+    , eval_time  = dt
+    , eval_perf  = ips
+    }
+
+-- CLI
+-- ===
+
+-- data CliOptions = CliOptions
+  -- { opt_stats    :: !Bool
+  -- , opt_collapse :: !(Maybe (Maybe Int))
+  -- } deriving (Eq, Show)
+
+-- default_options :: CliOptions
+-- default_options = CliOptions { opt_stats = False, opt_collapse = Nothing }
+
+-- parse_options :: [String] -> Either String CliOptions
+-- parse_options = go default_options where
+  -- go opts [] = Right opts
+  -- go opts ("-s":xs) = go opts { opt_stats = True } xs
+  -- go opts (('-':'C':rest):xs)
+    -- | opt_collapse opts /= Nothing = Left "Duplicate -C option."
+    -- | otherwise = do
+        -- (lim, xs') <- read_collapse rest xs
+        -- go opts { opt_collapse = Just lim } xs'
+  -- go _ (arg:_) = Left $ "Unknown option: " ++ arg
+
+  -- read_collapse :: String -> [String] -> Either String (Maybe Int, [String])
+  -- read_collapse rest xs
+    -- | not (null rest) =
+        -- if all isDigit rest
+          -- then Right (Just (read rest), xs)
+          -- else Left "Invalid -C value. Use digits only."
+    -- | otherwise =
+        -- case xs of
+          -- (n:xs') | all isDigit n -> Right (Just (read n), xs')
+          -- _                       -> Right (Nothing, xs)
+
+-- usage :: IO a
+-- usage = do
+  -- hPutStrLn stderr "Usage: ./main <file.hvm> [-s] [-C[N]]"
+  -- hPutStrLn stderr "  -s      show stats"
+  -- hPutStrLn stderr "  -C[N]   collapse and print N first results (or all when N omitted)"
+  -- exitFailure
+
+-- run_file :: FilePath -> CliOptions -> IO ()
+-- run_file file CliOptions{ opt_stats = stats, opt_collapse = collapse_opt } = do
+  -- book_src <- readFile file
+  -- let book = read_book book_src
+  -- EvalResult{ eval_value = val, eval_itrs = itrs, eval_time = dt, eval_perf = ips } <- eval_term book (Ref $ name_to_int "main")
+  -- putStrLn (show val)
+  -- when (collapse_opt /= Nothing) $ do
+    -- let terms   = flatten val
+        -- limited = case collapse_opt of
+          -- Just (Just n) -> take n terms
+          -- Just Nothing  -> terms
+          -- Nothing       -> []
+    -- forM_ limited $ \t -> putStrLn (show t)
+  -- when stats $ do
+    -- putStrLn $ "- Itrs: " ++ show itrs ++ " interactions"
+    -- printf "- Time: %.3f seconds\n" (dt :: Double)
+    -- printf "- Perf: %.2f M interactions/s\n" (ips / 1000000 :: Double)
+
+-- #ifndef TEST
+-- main :: IO ()
+-- main = do
+  -- args <- getArgs
+  -- case args of
+    -- [] -> usage
+    -- (file:opts) -> case parse_options opts of
+      -- Left err -> hPutStrLn stderr err >> usage
+      -- Right cli_opts -> run_file file cli_opts
+-- #endif
+
+-- PROBLEM: the CLI above works, but is too long. too many lines of code, lines
+-- too large, too much code bloat. your goal is to simplify it as much as
+-- possible while keeping the same features. you're allowed to import new
+-- functions if that can help you cleaning it up. do NOT use partial functions
+-- like head. (I'll add missing imports later.) updated CLI:
+-- 
+-- #ifndef TEST
+-- main :: IO ()
+-- main = do
+--   args <- getArgs
+--   case args of
+--     (file:opts) -> do
+--       let die m = hPutStrLn stderr m >> exitFailure
+--       let parse (s, c) [] = return (s, c)
+--           parse (s, c) ("-s":xs) = parse (True, c) xs
+--           parse (s, c) ("-C":y:xs) | all isDigit y = parse (s, Just (Just (read y))) xs
+--           parse (s, c) (x:xs) | take 2 x == "-C" =
+--             let n = drop 2 x in if null n then parse (s, Just Nothing) xs
+--             else if all isDigit n then parse (s, Just (Just (read n))) xs
+--             else die $ "Invalid limit: " ++ n
+--           parse _ (x:_) = die $ "Unknown option: " ++ x
+--       (stats, coll) <- parse (False, Nothing) opts
+-- 
+--       book <- read_book <$> readFile file
+--       EvalResult val itrs time perf <- eval_term book (Ref (name_to_int "main"))
+--       print val
+-- 
+--       forM_ coll $ \lim -> do
+--         let terms = flatten val
+--         forM_ (case lim of { Just n -> take n terms; Nothing -> terms }) print
+-- 
+--       when stats $ do
+--         putStrLn $ "- Itrs: " ++ show itrs ++ " interactions"
+--         printf "- Time: %.3f seconds\n" time
+--         printf "- Perf: %.2f M interactions/s\n" (perf / 1e6)
+-- 
+--     [] -> do
+--       hPutStrLn stderr "Usage: ./main <file.hvm> [-s] [-C[N]]"
+--       exitFailure
+-- #endif
+
+-- this is NOT  clean code. what is that inline parse function inside a let?
+-- that's not clean. see the rest of the file and adopt its style. make it good
+-- code. you tried to ohard to make it small and ended up making terrible code.
+-- 
+-- #ifndef TEST
+-- 
+-- data CliOpts = CliOpts { opt_stats :: !Bool, opt_collapse :: !(Maybe (Maybe Int)) }
+-- 
+-- parse_opts :: [String] -> Either String CliOpts
+-- parse_opts = go (CliOpts False Nothing) where
+--   go opts []             = Right opts
+--   go opts ("-s":xs)      = go (opts { opt_stats = True }) xs
+--   go opts (('-':'C':n):xs)
+--     | opt_collapse opts /= Nothing = Left "Duplicate -C option"
+--     | null n                        = go (opts { opt_collapse = Just Nothing }) xs
+--     | all isDigit n                 = go (opts { opt_collapse = Just (Just (read n)) }) xs
+--     | otherwise                     = Left $ "Invalid -C value: " ++ n
+--   go _ (x:_)             = Left $ "Unknown option: " ++ x
+-- 
+-- main :: IO ()
+-- main = do
+--   args <- getArgs
+--   case args of
+--     []          -> hPutStrLn stderr "Usage: ./main <file.hvm> [-s] [-C[N]]" >> exitFailure
+--     (file:opts) -> do
+--       case parse_opts opts of
+--         Left err -> hPutStrLn stderr err >> exitFailure
+--         Right CliOpts{opt_stats = stats, opt_collapse = coll} -> do
+--           book <- read_book <$> readFile file
+--           EvalResult val itrs dt ips <- eval_term book (Ref (name_to_int "main"))
+--           print val
+--           
+--           forM_ coll $ \lim ->
+--             let terms = flatten val
+--             in forM_ (maybe terms (`take` terms) lim) print
+--           
+--           when stats $ do
+--             putStrLn $ "- Itrs: " ++ show itrs ++ " interactions"
+--             printf "- Time: %.3f seconds\n" dt
+--             printf "- Perf: %.2f M interactions/s\n" (ips / 1e6)
+-- #endif
+
+-- this 'case args of' is still a bit ugly, the main is too indented to the right. can we fix that?
+
+#ifndef TEST
+
+data CliOpts = CliOpts
+  { opt_stats    :: !Bool
+  , opt_collapse :: !(Maybe (Maybe Int))
+  }
+
+parse_opts :: [String] -> Either String CliOpts
+parse_opts = go (CliOpts False Nothing) where
+  go opts []        = Right opts
+  go opts ("-s":xs) = go (opts { opt_stats = True }) xs
+  go opts (('-':'C':n):xs)
+    | has_c     = Left "Duplicate -C option"
+    | null n    = go (opts { opt_collapse = Just Nothing }) xs
+    | valid_n   = go (opts { opt_collapse = Just (Just (read n)) }) xs
+    | otherwise = Left $ "Invalid -C value: " ++ n
+    where has_c   = opt_collapse opts /= Nothing
+          valid_n = all isDigit n
+  go _ (x:_) = Left $ "Unknown option: " ++ x
 
 main :: IO ()
-main = test
+main = do
+  args <- getArgs
+
+  (file, opts) <- case args of
+    []    -> hPutStrLn stderr "Usage: ./main <file.hvm> [-s] [-C[N]]" >> exitFailure
+    (f:o) -> return (f, o)
+
+  CliOpts{ opt_stats = stats, opt_collapse = coll } <- case parse_opts opts of
+    Left err -> hPutStrLn stderr err >> exitFailure
+    Right o  -> return o
+
+  book <- read_book <$> readFile file
+  EvalResult val itrs dt ips <- eval_term book (Ref (name_to_int "main"))
+
+  print val
+
+  forM_ coll $ \lim -> do
+    let terms = flatten val
+    forM_ (maybe terms (`take` terms) lim) print
+
+  when stats $ do
+    putStrLn $ "- Itrs: " ++ show itrs ++ " interactions"
+    printf "- Time: %.3f seconds\n" dt
+    printf "- Perf: %.2f M interactions/s\n" (ips / 1e6)
+
+#endif
