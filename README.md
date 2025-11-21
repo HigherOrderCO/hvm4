@@ -17,6 +17,7 @@ Term ::=
 | Mat ::= "λ" "{" "#" Name ":" Term ";" Term "}"
 | Lam ::= "λ" Name "." Term
 | App ::= "(" Term " " Term ")"
+| Alo ::= "@" "{" [Name] "}" Term
 ```
 
 Where:
@@ -33,7 +34,67 @@ Reference Interaction
 ```
 @foo
 ---------------------- ref
-foo ~> alloc(book.foo)
+foo ~> @{}(book.foo)
+```
+
+Allocation Interactions
+-----------------------
+
+```
+@{s} n
+------ alo-var
+s[n]
+
+@{s} n₀
+------- alo-dp0
+s[n]₀
+
+@{s} n₁
+------- alo-dp1
+s[n]₁
+
+@{s} @ref
+--------- alo-ref
+@ref
+
+@{s} ^n
+------- alo-nam
+^n
+
+@{s} ^(f x)
+-------------- alo-dry
+^(@{s}f @{s}x)
+
+@{s} &{}
+-------- alo-era
+&{}
+
+@{s} &L{a,b}
+---------------- alo-sup
+&L{@{s}a, @{s}b}
+
+@{s} ! x &L = v; t
+------------------ alo-dup
+x' ← fresh
+! x' &L = @{s} v
+@{x',s} t
+
+@{s} λx.f
+------------ alo-lam
+x' ← fresh
+λx'.@{x',s}f
+
+@{s} (f x)
+------------- alo-app
+(@{s}f @{s}x)
+
+@{s} #K{x,y...}
+------------------- alo-ctr
+#K{@{s}x, @{s}y...}
+
+@{s} λ{#K:h; m}
+------------------- alo-mat
+λ{#K: @{s}h; @{s}m}
 ```
 
 Duplication Interactions

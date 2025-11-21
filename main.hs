@@ -1,5 +1,4 @@
-{-# LANGUAGE CPP #-}
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE BangPatterns, CPP #-}
 
 import Control.Monad (forM_, when)
 import Data.Bits (shiftL)
@@ -37,6 +36,7 @@ data Term
   | App !Term !Term
   | Ctr !Name ![Term]
   | Mat !Name !Term !Term
+  | Alo ![Name] !Term
   deriving (Eq)
 
 data Book = Book (M.Map Name Term)
@@ -65,6 +65,7 @@ instance Show Term where
   show (App f x)     = show_app f x
   show (Ctr k xs)    = "#" ++ int_to_name k ++ "{" ++ intercalate "," (map show xs) ++ "}"
   show (Mat k h m)   = "λ{#" ++ int_to_name k ++ ":" ++ show h ++ ";" ++ show m ++ "}"
+  show (Alo s t)     = "@{" ++ intercalate "," (map int_to_name s) ++ "}" ++ show t
 
 is_app :: Term -> Bool
 is_app (App _ _) = True
@@ -272,13 +273,31 @@ parse_book = do
 
 read_term :: String -> Term
 read_term s = case readP_to_S (parse_term <* skipSpaces <* eof) s of
-  [(t, "")] -> t
+  [(t, "")] -> bruijn t
   _         -> error "bad-parse"
 
 read_book :: String -> Book
 read_book s = case readP_to_S parse_book s of
-  [(b, "")] -> b
-  _         -> error "bad-parse"
+  [(Book m, "")] -> Book (M.map bruijn m)
+  _              -> error "bad-parse"
+
+bruijn :: Term -> Term
+bruijn t = go IM.empty 0 t where
+  go :: IM.IntMap Int -> Int -> Term -> Term
+  go env d t = case t of
+    Var k       -> case IM.lookup k env of { Just l -> Var (d - 1 - l) ; Nothing -> Var k }
+    Cop s k     -> case IM.lookup k env of { Just l -> Cop s (d - 1 - l) ; Nothing -> Cop s k }
+    Ref k       -> Ref k
+    Nam k       -> Nam k
+    Dry f x     -> Dry (go env d f) (go env d x)
+    Era         -> Era
+    Sup l a b   -> Sup l (go env d a) (go env d b)
+    Dup k l v b -> Dup k l (go env d v) (go (IM.insert k d env) (d + 1) b)
+    Lam k f     -> Lam k (go (IM.insert k d env) (d + 1) f)
+    App f x     -> App (go env d f) (go env d x)
+    Ctr k xs    -> Ctr k (map (go env d) xs)
+    Mat k h m   -> Mat k (go env d h) (go env d m)
+    Alo s b     -> Alo s (go env d b)
 
 -- Environment
 -- ===========
@@ -379,6 +398,24 @@ wnf e term = do
       wnf e t
     Ref k -> do
       wnf_ref e k
+    Alo s t -> case t of
+      Var k     -> wnf e $ Var (s !! k)
+      Cop c k   -> wnf e $ Cop c (s !! k)
+      Ref k     -> wnf e $ Ref k
+      Nam k     -> wnf e $ Nam k
+      Dry f x   -> wnf e $ Dry (Alo s f) (Alo s x)
+      Era       -> wnf e $ Era
+      Sup l a b -> wnf e $ Sup l (Alo s a) (Alo s b)
+      Dup k l v t -> do
+        x <- fresh e
+        wnf e $ Dup x l (Alo s v) (Alo (x:s) t)
+      Lam k f -> do
+        x <- fresh e
+        wnf e $ Lam x (Alo (x:s) f)
+      App f x   -> wnf e $ App (Alo s f) (Alo s x)
+      Ctr k xs  -> wnf e $ Ctr k (map (Alo s) xs)
+      Mat k h m -> wnf e $ Mat k (Alo s h) (Alo s m)
+      Alo s' t' -> error "Nested Alo"
     t -> do
       return t
 
@@ -532,68 +569,8 @@ wnf_ref e k = do
   case M.lookup k m of
     Just f  -> do
       inc_itrs e
-      g <- alloc e f
-      wnf e g
+      wnf e (Alo [] f)
     Nothing -> error $ "UndefinedReference: " ++ int_to_name k
-
--- Allocation
--- ==========
-
--- Allocates a closed term, replacing all bound names with fresh ones.
-alloc :: Env -> Term -> IO Term
-alloc e term = go IM.empty term where
-
-  go :: IM.IntMap Name -> Term -> IO Term
-
-  go m (Var k) = do
-    return $ Var (IM.findWithDefault k k m)
-
-  go m (Cop s k) = do
-    return $ Cop s (IM.findWithDefault k k m)
-
-  go _ Era = do
-    return Era
-
-  go m (Sup l a b) = do
-    a' <- go m a
-    b' <- go m b
-    return $ Sup l a' b'
-
-  go m (App f x) = do
-    f' <- go m f
-    x' <- go m x
-    return $ App f' x'
-
-  go _ (Ref k) = do
-    return $ Ref k
-
-  go _ (Nam k) = do
-    return $ Nam k
-
-  go m (Dry f x) = do
-    f' <- go m f
-    x' <- go m x
-    return $ Dry f' x'
-
-  go m (Dup k l v t) = do
-    k' <- fresh e
-    v' <- go m v
-    t' <- go (IM.insert k k' m) t
-    return $ Dup k' l v' t'
-
-  go m (Lam k f) = do
-    k' <- fresh e
-    f' <- go (IM.insert k k' m) f
-    return $ Lam k' f'
-    
-  go m (Ctr k xs) = do
-    xs' <- mapM (go m) xs
-    return $ Ctr k xs'
-
-  go m (Mat k h miss) = do
-    h' <- go m h
-    miss' <- go m miss
-    return $ Mat k h' miss'
 
 -- Normalization
 -- =============
@@ -649,6 +626,9 @@ snf e d x = do
       h' <- snf e d h
       m' <- snf e d m
       return $ Mat k h' m'
+
+    Alo s t -> do
+      error "Should be gone"
 
 -- Collapsing
 -- ==========
@@ -728,28 +708,27 @@ flatten term = bfs [term] [] where
 -- ==========
 
 data EvalResult = EvalResult
-  { eval_value :: !Term
-  , eval_itrs  :: !Int
-  , eval_time  :: !Double
-  , eval_perf  :: !Double
+  { eval_norm :: !Term
+  , eval_itrs :: !Int
+  , eval_time :: !Double
+  , eval_perf :: !Double
   }
 
 eval_term :: Book -> Term -> IO EvalResult
 eval_term bk term = do
   !env <- new_env bk
   !ini <- getCPUTime
-  !val <- alloc env term
-  !val <- collapse env val
+  !val <- collapse env (Alo [] term)
   !val <- snf env 1 val
   !end <- getCPUTime
   !itr <- readIORef (env_itrs env)
-  let !dt  = fromIntegral (end - ini) / (10 ^ 12)
-      !ips = fromIntegral itr / dt
+  !dt  <- return $ fromIntegral (end - ini) / (10 ^ 12)
+  !ips <- return $ fromIntegral itr / dt
   return EvalResult
-    { eval_value = val
-    , eval_itrs  = itr
-    , eval_time  = dt
-    , eval_perf  = ips
+    { eval_norm = val
+    , eval_itrs = itr
+    , eval_time = dt
+    , eval_perf = ips
     }
 
 -- CLI

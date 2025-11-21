@@ -41,11 +41,10 @@ book = unlines
 tests :: [(String,String)]
 tests =
   [ (num 0, num 0)
-  , ("("++f 2++")(λX.X(λT0.λF0.F0, λT1.λF1.T1), λT2.λF2.T2)", "λa.λb.a")
   , ("#S{&L{" ++ num 0 ++ "," ++ num 1 ++ "}}", "&L{" ++ num 1 ++ "," ++ num 2 ++ "}")
   , ("#S{&A{&B{" ++ num 0 ++ "," ++ num 1 ++ "},&C{" ++ num 2 ++ "," ++ num 3 ++ "}}}", "&A{&B{" ++ num 1 ++ "," ++ num 2 ++ "},&C{" ++ num 3 ++ "," ++ num 4 ++ "}}")
   , ("λa.!A&L=a;&L{A₀,A₁}", "&L{λa.a,λa.a}")
-  , ("λa.λb.!A&L=a;!B&L=b;&L{λx.x(A₀, B₀),λx.x(A₁,B₁)}", "&L{λa.λb.λc.c(a,b),λa.λb.λc.c(a,b)}")
+  , ("λa.λb.!A&L=a;!B&L=b;&L{λx.x(A₀,B₀),λx.x(A₁,B₁)}", "&L{λa.λb.λc.c(a,b),λa.λb.λc.c(a,b)}")
   , ("λt.t(&A{" ++ num 1 ++ "," ++ num 2 ++ "}, " ++ num 3 ++ ")", "&A{λa.a(" ++ num 1 ++ "," ++ num 3 ++ "),λa.a(" ++ num 2 ++ "," ++ num 3 ++ ")}")
   , ("λt.t(" ++ num 1 ++ ", &B{" ++ num 3 ++ "," ++ num 4 ++ "})", "&B{λa.a(" ++ num 1 ++ "," ++ num 3 ++ "),λa.a(" ++ num 1 ++ "," ++ num 4 ++ ")}")
   , ("λt.t(&A{" ++ num 1 ++ "," ++ num 2 ++ "}, &A{" ++ num 3 ++ "," ++ num 4 ++ "})", "&A{λa.a(" ++ num 1 ++ "," ++ num 3 ++ "),λa.a(" ++ num 2 ++ "," ++ num 4 ++ ")}")
@@ -72,12 +71,13 @@ tests =
   , ("@C8(@K8, @NOT, @T)", "λa.λb.a")
   , ("@dbl(#S{#S{#S{#S{#Z{}}}}})", "#S{#S{#S{#S{#S{#S{#S{#S{#Z{}}}}}}}}}")
   , ("@sum(#S{#S{#S{#S{#Z{}}}}})", "#S{#S{#S{#S{#S{#S{#S{#S{#S{#S{#Z{}}}}}}}}}}}")
+  , ("("++f 2++")(λX.X(λT0.λF0.F0, λT1.λF1.T1), λT2.λF2.T2)", "λa.λb.a")
   ]
 
 runTests :: IO ()
 runTests = forM_ tests $ \ (src, exp) -> do
   !env <- new_env $ read_book book
-  !det <- collapse env $ read_term src
+  !det <- collapse env $ Alo [] (read_term src)
   !det <- show <$> snf env 1 det
   !itr <- readIORef (env_itrs env)
   if det == exp then do
@@ -89,4 +89,3 @@ runTests = forM_ tests $ \ (src, exp) -> do
 
 main :: IO ()
 main = runTests
-
