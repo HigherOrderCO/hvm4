@@ -1,3 +1,0 @@
-#import "_book_.hvm4"
-@main = @cadd(@c1, λf.λx.f(x), @cnot)
-//λa.λb.λc.a(b,c)
