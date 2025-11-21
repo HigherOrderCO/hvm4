@@ -67,11 +67,6 @@ instance Show Term where
   show (Mat k h m)   = "λ{#" ++ int_to_name k ++ ":" ++ show h ++ ";" ++ show m ++ "}"
   show (Alo s t)     = "@{" ++ intercalate "," (map int_to_name s) ++ "}" ++ show t
 
-is_app :: Term -> Bool
-is_app (App _ _) = True
-is_app (Dry _ _) = True
-is_app _         = False
-
 show_app :: Term -> Term -> String
 show_app f x = case f of
   App _ _ -> init (show f) ++ "," ++ show x ++ ")"
@@ -703,81 +698,3 @@ flatten term = bfs [term] [] where
   bfs (t:ts) acc = case t of
     Sup _ a b -> bfs (ts ++ [a, b]) acc
     _         -> bfs ts (t : acc)
-
--- Evaluation
--- ==========
-
-data EvalResult = EvalResult
-  { eval_norm :: !Term
-  , eval_itrs :: !Int
-  , eval_time :: !Double
-  , eval_perf :: !Double
-  }
-
-eval_term :: Book -> Term -> IO EvalResult
-eval_term bk term = do
-  !env <- new_env bk
-  !ini <- getCPUTime
-  !val <- collapse env (Alo [] term)
-  !val <- snf env 1 val
-  !end <- getCPUTime
-  !itr <- readIORef (env_itrs env)
-  !dt  <- return $ fromIntegral (end - ini) / (10 ^ 12)
-  !ips <- return $ fromIntegral itr / dt
-  return EvalResult
-    { eval_norm = val
-    , eval_itrs = itr
-    , eval_time = dt
-    , eval_perf = ips
-    }
-
--- CLI
--- ===
-
-#ifndef TEST
-
-data CliOpts = CliOpts
-  { opt_stats    :: !Bool
-  , opt_collapse :: !(Maybe (Maybe Int))
-  }
-
-parse_opts :: [String] -> Either String CliOpts
-parse_opts = go (CliOpts False Nothing) where
-  go opts []        = Right opts
-  go opts ("-s":xs) = go (opts { opt_stats = True }) xs
-  go opts (('-':'C':n):xs)
-    | has_c     = Left "Duplicate -C option"
-    | null n    = go (opts { opt_collapse = Just Nothing }) xs
-    | valid_n   = go (opts { opt_collapse = Just (Just (read n)) }) xs
-    | otherwise = Left $ "Invalid -C value: " ++ n
-    where has_c   = opt_collapse opts /= Nothing
-          valid_n = all isDigit n
-  go _ (x:_) = Left $ "Unknown option: " ++ x
-
-main :: IO ()
-main = do
-  args <- getArgs
-
-  (file, opts) <- case args of
-    []    -> hPutStrLn stderr "Usage: ./main <file.hvm> [-s] [-C[N]]" >> exitFailure
-    (f:o) -> return (f, o)
-
-  CliOpts{ opt_stats = stats, opt_collapse = coll } <- case parse_opts opts of
-    Left err -> hPutStrLn stderr err >> exitFailure
-    Right o  -> return o
-
-  book <- read_book <$> readFile file
-  EvalResult val itrs dt ips <- eval_term book (Ref (name_to_int "main"))
-
-  print val
-
-  forM_ coll $ \lim -> do
-    let terms = flatten val
-    forM_ (maybe terms (`take` terms) lim) print
-
-  when stats $ do
-    putStrLn $ "- Itrs: " ++ show itrs ++ " interactions"
-    printf "- Time: %.3f seconds\n" dt
-    printf "- Perf: %.2f M interactions/s\n" (ips / 1e6)
-
-#endif
