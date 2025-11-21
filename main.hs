@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE BangPatterns #-}
 
 import Control.Monad (forM_, when)
 import Data.Bits (shiftL)
@@ -50,25 +51,32 @@ data Env = Env
 
 -- Showing
 -- =======
--- 
+
 instance Show Term where
   show (Var k)       = int_to_name k
   show (Cop s k)     = int_to_name k ++ (if s == 0 then "₀" else "₁")
   show (Ref k)       = "@" ++ int_to_name k
   show (Nam k)       = k
-  show (Dry f x)     = show_app f [x]
+  show (Dry f x)     = show_app f x
   show Era           = "&{}"
   show (Sup l a b)   = "&" ++ int_to_name l ++ "{" ++ show a ++ "," ++ show b ++ "}"
   show (Dup k l v t) = "!" ++ int_to_name k ++ "&" ++ int_to_name l ++ "=" ++ show v ++ ";" ++ show t
   show (Lam k f)     = "λ" ++ int_to_name k ++ "." ++ show f
-  show (App f x)     = show_app f [x]
+  show (App f x)     = show_app f x
   show (Ctr k xs)    = "#" ++ int_to_name k ++ "{" ++ intercalate "," (map show xs) ++ "}"
   show (Mat k h m)   = "λ{#" ++ int_to_name k ++ ":" ++ show h ++ ";" ++ show m ++ "}"
 
-show_app :: Term -> [Term] -> String
-show_app (Dry f x) xs = show_app f (x : xs)
-show_app (App f x) xs = show_app f (x : xs)
-show_app f         xs = "(" ++ unwords (map show (f : xs)) ++ ")"
+is_app :: Term -> Bool
+is_app (App _ _) = True
+is_app (Dry _ _) = True
+is_app _         = False
+
+show_app :: Term -> Term -> String
+show_app f x = case f of
+  App _ _ -> init (show f) ++ "," ++ show x ++ ")"
+  Dry _ _ -> init (show f) ++ "," ++ show x ++ ")"
+  Lam _ _ -> "(" ++ show f ++ ")(" ++ show x ++ ")"
+  _       -> show f ++ "(" ++ show x ++ ")"
 
 instance Show Book where
   show (Book m) = unlines [ "@" ++ int_to_name k ++ " = " ++ show ct | (k, ct) <- M.toList m ]
@@ -110,18 +118,28 @@ parse_name = parse_lexeme $ do
   return (head : tail)
 
 parse_term :: ReadP Term
-parse_term = parse_term_base
+parse_term = do
+  t <- parse_term_base
+  parse_term_suff t
+
+parse_term_suff :: Term -> ReadP Term
+parse_term_suff t = loop <++ return t where
+  loop = do
+    parse_lexeme (char '(')
+    args <- sepBy parse_term (parse_lexeme (char ','))
+    parse_lexeme (char ')')
+    parse_term_suff (foldl' App t args)
 
 parse_term_base :: ReadP Term
 parse_term_base = parse_lexeme $ choice
   [ parse_lam_or_swi
   , parse_dup
-  , parse_par
   , parse_sup
   , parse_era
-  , parse_ref
   , parse_ctr
+  , parse_ref
   , parse_nam
+  , parse_par
   , parse_var
   ]
 
@@ -129,15 +147,8 @@ parse_par :: ReadP Term
 parse_par = do
   parse_lexeme (char '(')
   t <- parse_term
-  choice
-    [ parse_par_app t
-    ]
-
-parse_par_app :: Term -> ReadP Term
-parse_par_app t = do
-  ts <- many parse_term
   parse_lexeme (char ')')
-  return (foldl' App t ts)
+  return t
 
 parse_lam_or_swi :: ReadP Term
 parse_lam_or_swi = do
@@ -233,6 +244,7 @@ parse_nam_dry :: ReadP Term
 parse_nam_dry = do
   parse_lexeme (char '(')
   f <- parse_term
+  parse_lexeme (char ',')
   x <- parse_term
   parse_lexeme (char ')')
   return (Dry f x)
