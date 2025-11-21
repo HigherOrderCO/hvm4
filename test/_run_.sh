@@ -2,10 +2,10 @@
 set -uo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
-BIN="$DIR/../haskell/main"
+HS_MAIN="$DIR/../haskell/main.hs"
 
-if [ ! -x "$BIN" ]; then
-  echo "error: expected executable at $BIN" >&2
+if [ ! -f "$HS_MAIN" ]; then
+  echo "error: expected Haskell entrypoint at $HS_MAIN" >&2
   exit 1
 fi
 
@@ -50,7 +50,7 @@ for test_file in "${tests[@]}"; do
   tmp_files+=("$tmp")
   sed '$d' "$test_file" > "$tmp"
 
-  actual="$("$BIN" "$tmp")"
+  actual="$(runhaskell "$HS_MAIN" "$tmp")"
 
   if [ "$actual" = "$expected" ]; then
     echo "[PASS] $name"
