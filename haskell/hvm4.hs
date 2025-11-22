@@ -179,14 +179,25 @@ parse_lam = do
 parse_mat :: ReadP Term
 parse_mat = do
   parse_lexeme (char '{')
-  parse_lexeme (char '#')
-  k <- parse_name
-  parse_lexeme (char ':')
-  h <- parse_term
-  optional (parse_lexeme (char ';'))
-  m <- parse_term
-  parse_lexeme (char '}')
-  return (Mat (name_to_int k) h m)
+  parse_mat_body
+ where
+  parse_mat_body = parse_mat_case <++ parse_mat_default
+
+  parse_mat_case = do
+    parse_lexeme (char '#')
+    k <- parse_name
+    parse_lexeme (char ':')
+    h <- parse_term
+    is_semi <- option False (parse_lexeme (char ';') >> return True)
+    m <- if is_semi
+      then (parse_lexeme (char '}') >> return Era) <++ parse_mat_body
+      else (parse_lexeme (char '}') >> return Era)
+    return (Mat (name_to_int k) h m)
+
+  parse_mat_default = do
+    t <- parse_term
+    parse_lexeme (char '}')
+    return t
 
 parse_dup :: ReadP Term
 parse_dup = do
