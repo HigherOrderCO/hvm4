@@ -123,98 +123,143 @@ data PState = PState
   , ps_seen :: S.Set FilePath
   }
 
-get_source_line :: String -> Int -> String
-get_source_line src line
-  | line > 0 && line <= length lns = lns !! (line - 1)
-  | otherwise                      = ""
-  where lns = lines (src ++ "\n")
-
-parse_error :: IORef PState -> String -> IO a
-parse_error ps expected = do
+parse_err :: IORef PState -> String -> IO a
+parse_err ps msg = do
   s <- readIORef ps
   let file = ps_file s
   let line = ps_line s
   let col  = ps_col s
   let src  = ps_src s
   let code = ps_code s
-  let curr = case code of { [] -> "EOF" ; c:_ -> show [c] }
-  let line_str = get_source_line src line
-  hPutStrLn stderr $ "\ESC[1;31mPARSE_ERROR\ESC[0m (" ++ file ++ ":" ++ show line ++ ":" ++ show col ++ ")"
-  hPutStrLn stderr $ "- detected: " ++ curr
-  hPutStrLn stderr $ "- expected: " ++ expected
-  hPutStrLn stderr $ show line ++ " | " ++ line_str
-  hPutStrLn stderr $ replicate (length (show line) + 3 + col - 1) ' ' ++ "\ESC[1;31m^\ESC[0m"
+  let strL = show line
+  let strC = show col
+  let loc  = file ++ ":" ++ strL ++ ":" ++ strC
+  let lin  = get_line src line
+  let cur  = case code of { [] -> "EOF"; (c:_) -> show [c] }
+  let pre  = strL ++ " | "
+  let car  = replicate (length pre + col - 1) ' ' ++ "\ESC[1;31m^\ESC[0m"
+  hPutStrLn stderr $ "\ESC[1;31mPARSE_ERROR\ESC[0m (" ++ loc ++ ")"
+  hPutStrLn stderr $ "- detected: " ++ cur
+  hPutStrLn stderr $ "- expected: " ++ msg
+  hPutStrLn stderr $ pre ++ lin
+  hPutStrLn stderr $ car
   exitFailure
+
+get_line :: String -> Int -> String
+get_line src line = nth_line (lines src) line
+
+nth_line :: [String] -> Int -> String
+nth_line [] _ = ""
+nth_line (x:xs) 1 = x
+nth_line (x:xs) n = nth_line xs (n - 1)
 
 peek :: IORef PState -> IO Char
 peek ps = do
   s <- readIORef ps
-  return $ case ps_code s of { [] -> '\0' ; c:_ -> c }
+  case ps_code s of
+    []    -> return '\0'
+    (c:_) -> return c
 
-step :: IORef PState -> IO ()
-step ps = modifyIORef' ps $ \s -> case ps_code s of
-  '\n':cs -> s { ps_code = cs, ps_line = ps_line s + 1, ps_col = 1 }
-  _   :cs -> s { ps_code = cs, ps_col  = ps_col  s + 1 }
-  []      -> s
-
-drop_line ps = do
-  c <- peek ps
-  step ps
-  if c /= '\n' && c /= '\0' then
-    drop_line ps
-  else
-    skip ps
+next :: IORef PState -> IO ()
+next ps = modifyIORef' ps $ \s -> case ps_code s of
+  ('\n':cs) -> s { ps_code = cs, ps_line = ps_line s + 1, ps_col = 1 }
+  (_:cs)    -> s { ps_code = cs, ps_col  = ps_col  s + 1 }
+  []        -> s
 
 skip :: IORef PState -> IO ()
 skip ps = do
+  c <- peek ps
+  if isSpace c
+    then do
+      next ps
+      skip ps
+    else do
+      match_comment ps
+
+match_comment :: IORef PState -> IO ()
+match_comment ps = do
   s <- readIORef ps
   case ps_code s of
-    '/':'/':_       -> drop_line ps
-    c:_ | isSpace c -> step ps >> skip ps
-    _               -> return ()
+    ('/':'/':_) -> do
+      drop_line ps
+    _ -> do
+      return ()
+
+drop_line :: IORef PState -> IO ()
+drop_line ps = do
+  c <- peek ps
+  next ps
+  if c /= '\n' && c /= '\0'
+    then do
+      drop_line ps
+    else do
+      skip ps
+
+match :: String -> IORef PState -> IO Bool
+match str ps = do
+  s <- readIORef ps
+  if is_prefix str (ps_code s)
+    then do
+      mapM_ (\_ -> next ps) str
+      skip ps
+      return True
+    else do
+      return False
+
+is_prefix :: String -> String -> Bool
+is_prefix [] _ = True
+is_prefix (x:xs) (y:ys) = x == y && is_prefix xs ys
+is_prefix _ _ = False
 
 consume :: String -> IORef PState -> IO ()
 consume str ps = do
-  forM_ str $ \c -> do
-    c' <- peek ps
-    if c == c' 
-      then step ps 
-      else parse_error ps ("'" ++ [c] ++ "'")
-  skip ps
+  b <- match str ps
+  if b
+    then do
+      return ()
+    else do
+      parse_err ps ("'" ++ str ++ "'")
+
+parse_list :: String -> (IORef PState -> IO a) -> IORef PState -> IO [a]
+parse_list end p ps = do
+  b <- match end ps
+  if b then do
+    return []
+  else do
+    x <- p ps
+    c <- peek ps
+    if c == ',' then do
+      consume "," ps
+      xs <- parse_list end p ps
+      return (x:xs)
+    else do
+      consume end ps
+      return [x]
+
+parse_while :: (Char -> Bool) -> IORef PState -> IO String
+parse_while pred ps = do
+  c <- peek ps
+  if pred c then do
+    next ps
+    cs <- parse_while pred ps
+    return (c:cs)
+  else do
+    return []
 
 parse_name :: IORef PState -> IO Name
 parse_name ps = do
   c <- peek ps
-  if c `elem` alphabet_first 
-    then do
-      step ps
-      rest <- collect_name_chars
-      let nam = c : rest
-      skip ps
-      return (name_to_int nam)
-    else parse_error ps "name"
-  where
-    collect_name_chars = do
-      c <- peek ps
-      if c `elem` alphabet 
-        then do
-          step ps
-          rest <- collect_name_chars
-          return (c : rest)
-        else return []
-
-parse_str_until :: Char -> IORef PState -> IO String
-parse_str_until end ps = do
-  c <- peek ps
-  if c == end 
-    then return [] 
-    else do
-      step ps
-      rest <- parse_str_until end ps
-      return (c : rest)
+  if elem c alphabet_first then do
+    next ps
+    cs <- parse_while (\c -> elem c alphabet) ps
+    skip ps
+    return (name_to_int (c:cs))
+  else do
+    parse_err ps "name"
 
 parse_term :: IORef PState -> IO Term
 parse_term ps = do
+  skip ps
   c <- peek ps
   t <- case c of
     'λ' -> parse_lam ps
@@ -222,7 +267,7 @@ parse_term ps = do
     '&' -> parse_sup ps
     '#' -> parse_ctr ps
     '@' -> parse_ref ps
-    '(' -> parse_par ps
+    '(' -> parse_grp ps
     _   -> parse_var ps
   parse_app t ps
 
@@ -230,38 +275,38 @@ parse_lam :: IORef PState -> IO Term
 parse_lam ps = do
   consume "λ" ps
   c <- peek ps
-  if c == '{' 
-    then parse_mat ps 
-    else do
-      nam <- parse_name ps
-      consume "." ps
-      bod <- parse_term ps
-      return $ Lam nam bod
+  if c == '{' then do
+    parse_mat ps
+  else do
+    nam <- parse_name ps
+    consume "." ps
+    bod <- parse_term ps
+    return (Lam nam bod)
 
 parse_mat :: IORef PState -> IO Term
 parse_mat ps = do
   consume "{" ps
-  parse_mat_body
-  where
-    parse_mat_body = do
-      c <- peek ps
-      case c of
-        '}' -> do
-          consume "}" ps 
-          return Era
-        '#' -> do
-          consume "#" ps
-          nam <- parse_name ps
-          consume ":" ps
-          val <- parse_term ps
-          c2 <- peek ps
-          when (c2 == ';') (consume ";" ps)
-          nxt <- parse_mat_body
-          return $ Mat nam val nxt
-        _ -> do
-          t <- parse_term ps
-          consume "}" ps
-          return t
+  parse_mat_body ps
+
+parse_mat_body :: IORef PState -> IO Term
+parse_mat_body ps = do
+  c <- peek ps
+  case c of
+    '}' -> do
+      consume "}" ps
+      return Era
+    '#' -> do
+      consume "#" ps
+      nam <- parse_name ps
+      consume ":" ps
+      val <- parse_term ps
+      match ";" ps
+      nxt <- parse_mat_body ps
+      return (Mat nam val nxt)
+    _ -> do
+      val <- parse_term ps
+      consume "}" ps
+      return val
 
 parse_dup :: IORef PState -> IO Term
 parse_dup ps = do
@@ -273,86 +318,52 @@ parse_dup ps = do
   val <- parse_term ps
   consume ";" ps
   bod <- parse_term ps
-  return $ Dup nam lab val bod
+  return (Dup nam lab val bod)
 
 parse_sup :: IORef PState -> IO Term
 parse_sup ps = do
   consume "&" ps
   c <- peek ps
-  if c == '{' 
-    then do
-      consume "{" ps
-      consume "}" ps
-      return Era
-    else do
-      lab <- parse_name ps
-      consume "{" ps
-      t1 <- parse_term ps
-      consume "," ps
-      t2 <- parse_term ps
-      consume "}" ps
-      return $ Sup lab t1 t2
+  if c == '{' then do
+    consume "{" ps
+    consume "}" ps
+    return Era
+  else do
+    lab <- parse_name ps
+    consume "{" ps
+    t1 <- parse_term ps
+    consume "," ps
+    t2 <- parse_term ps
+    consume "}" ps
+    return (Sup lab t1 t2)
 
 parse_ctr :: IORef PState -> IO Term
 parse_ctr ps = do
   consume "#" ps
   nam <- parse_name ps
   consume "{" ps
-  args <- parse_comma_separated_terms
-  return $ Ctr nam args
-  where
-    parse_comma_separated_terms = do
-      c <- peek ps
-      if c == '}' 
-        then do
-          consume "}" ps 
-          return []
-        else do
-          t <- parse_term ps
-          c2 <- peek ps
-          if c2 == ',' 
-            then do
-              consume "," ps
-              rest <- parse_comma_separated_terms
-              return (t : rest)
-            else do
-              consume "}" ps 
-              return [t]
+  args <- parse_list "}" parse_term ps
+  return (Ctr nam args)
 
 parse_ref :: IORef PState -> IO Term
 parse_ref ps = do
   consume "@" ps
   c <- peek ps
-  if c == '{' 
-    then parse_alo ps
-    else do
-      nam <- parse_name ps
-      return $ Ref nam
-  where
-    parse_alo ps = do
-      consume "{" ps
-      ns <- parse_comma_separated_names
-      t <- parse_term ps
-      return $ Alo ns t
-    
-    parse_comma_separated_names = do
-      n <- parse_name ps
-      c2 <- peek ps
-      if c2 == ',' 
-        then do
-          consume "," ps
-          rest <- parse_comma_separated_names
-          return (n : rest)
-        else do
-          consume "}" ps 
-          return [n]
+  if c == '{' then do
+    consume "{" ps
+    nams <- parse_list "}" parse_name ps
+    term <- parse_term ps
+    return (Alo nams term)
+  else do
+    nam <- parse_name ps
+    return (Ref nam)
 
-parse_par :: IORef PState -> IO Term
-parse_par ps = do
+parse_grp :: IORef PState -> IO Term
+parse_grp ps = do
   consume "(" ps
-  t <- parse_term ps
+  term <- parse_term ps
   consume ")" ps
-  return t
+  return term
 
 parse_var :: IORef PState -> IO Term
 parse_var ps = do
@@ -360,113 +371,86 @@ parse_var ps = do
   c <- peek ps
   case c of
     '₀' -> do
-      consume "₀" ps 
+      consume "₀" ps
       return (Cop 0 nam)
     '₁' -> do
-      consume "₁" ps 
+      consume "₁" ps
       return (Cop 1 nam)
-    _   -> return (Var nam)
+    _ -> do
+      return (Var nam)
 
 parse_app :: Term -> IORef PState -> IO Term
 parse_app f ps = do
   c <- peek ps
-  if c == '(' 
-    then do
-      consume "(" ps
-      args <- parse_comma_separated_args
-      parse_app (foldl' App f args) ps
-    else return f
-  where
-    parse_comma_separated_args = do
-      c <- peek ps
-      if c == ')' 
-        then do
-          consume ")" ps 
-          return []
-        else do
-          t <- parse_term ps
-          c2 <- peek ps
-          if c2 == ',' 
-            then do
-              consume "," ps
-              rest <- parse_comma_separated_args
-              return (t : rest)
-            else do
-              consume ")" ps 
-              return [t]
+  if c == '(' then do
+    consume "(" ps
+    args <- parse_list ")" parse_term ps
+    parse_app (foldl' App f args) ps
+  else do
+    return f
 
-read_book :: FilePath -> IO Book
-read_book path = do
-  path <- canonicalizePath path
-  let initial_state = PState path "" "" 1 1 M.empty S.empty
-  ps <- newIORef initial_state
-  do_include ps path
-  s <- readIORef ps
-  return $ Book (M.map bruijn (ps_defs s))
-
-do_include :: IORef PState -> FilePath -> IO ()
-do_include ps path = do
-  s <- readIORef ps
-  if S.member path (ps_seen s) 
-    then return () 
-    else do
-      code <- readFile path
-      let new_state = s { ps_file = path
-                        , ps_src = code
-                        , ps_code = code
-                        , ps_line = 1
-                        , ps_col = 1
-                        , ps_seen = S.insert path (ps_seen s) 
-                        }
-      writeIORef ps new_state
-      skip ps
-      parse_defs ps
-      restore_old_state
-  where
-    restore_old_state = do
-      s' <- readIORef ps
-      s  <- readIORef ps
-      let restored = s' { ps_file = ps_file s
-                        , ps_src = ps_src s
-                        , ps_code = ps_code s
-                        , ps_line = ps_line s
-                        , ps_col = ps_col s 
-                        }
-      writeIORef ps restored
-
-parse_defs :: IORef PState -> IO ()
-parse_defs ps = do
+parse_def :: IORef PState -> IO ()
+parse_def ps = do
   c <- peek ps
   case c of
-    '\0' -> return ()
-    '#'  -> do
-      parse_include ps
-      parse_defs ps
-    '@'  -> do
-      parse_definition ps
-      parse_defs ps
-    _    -> parse_error ps "definition or #include"
-  where
-    parse_include ps = do
+    '\0' -> do
+      return ()
+    '#' -> do
       consume "#include" ps
       consume "\"" ps
-      f <- parse_str_until '"' ps
+      file <- parse_until '"' ps
       consume "\"" ps
       s <- readIORef ps
       let dir = takeDirectory (ps_file s)
-      p <- canonicalizePath (dir </> f)
-      do_include ps p
-    
-    parse_definition ps = do
+      path <- canonicalizePath (dir </> file)
+      do_include ps path
+      parse_def ps
+    '@' -> do
       consume "@" ps
       nam <- parse_name ps
       consume "=" ps
       val <- parse_term ps
-      update_definitions nam val
-      where
-        update_definitions nam val = 
-          modifyIORef' ps $ \s -> 
-            s { ps_defs = M.insert nam val (ps_defs s) }
+      modifyIORef' ps $ \s -> s { ps_defs = M.insert nam val (ps_defs s) }
+      parse_def ps
+    _ -> do
+      parse_err ps "definition or #include"
+
+parse_until :: Char -> IORef PState -> IO String
+parse_until end ps = do
+  c <- peek ps
+  if c == end then do
+    return []
+  else do
+    next ps
+    cs <- parse_until end ps
+    return (c:cs)
+
+do_include :: IORef PState -> FilePath -> IO ()
+do_include ps path = do
+  s <- readIORef ps
+  if S.member path (ps_seen s) then do
+    return ()
+  else do
+    code <- readFile path
+    let s' = s { ps_file = path, ps_src = code, ps_code = code, ps_line = 1, ps_col = 1, ps_seen = S.insert path (ps_seen s) }
+    writeIORef ps s'
+    skip ps
+    parse_def ps
+    restore_state ps s
+
+restore_state :: IORef PState -> PState -> IO ()
+restore_state ps old = do
+  s <- readIORef ps
+  writeIORef ps (s { ps_file = ps_file old, ps_src = ps_src old, ps_code = ps_code old, ps_line = ps_line old, ps_col = ps_col old })
+
+read_book :: FilePath -> IO Book
+read_book path = do
+  path <- canonicalizePath path
+  let init = PState path "" "" 1 1 M.empty S.empty
+  ps <- newIORef init
+  do_include ps path
+  s <- readIORef ps
+  return (Book (M.map bruijn (ps_defs s)))
 
 read_term :: String -> Term
 read_term _ = error "read_term not supported in IO parser without IO"
