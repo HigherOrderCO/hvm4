@@ -1,0 +1,13 @@
+#include "_book_.hvm4"
+
+// Bits = { #E{} #O{p} #I{p} } 
+
+@two = #S{#S{#Z{}}}
+
+@bits = λ{
+  #Z: #E{} ; 
+  #S: λp.!P&L=p ; &L{ #O{@bits(P₀)}, #I{@bits(P₁)} }
+}
+
+@main = @bits(@two)
+//&L{&L{#O{#O{#E{}}},#O{#I{#E{}}}},&L{#I{#O{#E{}}},#I{#I{#E{}}}}}

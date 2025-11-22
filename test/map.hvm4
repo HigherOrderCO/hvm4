@@ -1,0 +1,7 @@
+#include "_book_.hvm4"
+
+@inc = λx.#S{x}
+@map = λf.λ{#Nil: #Nil{} ; #Cons: λh.λt. !F&L=f ; #Cons{F₀(h), @map(F₁, t)} } 
+
+@main = @map(@inc, #Cons{#Z{}, #Cons{#S{#Z{}}, #Nil{}}})
+//#Cons{#S{#Z{}},#Cons{#S{#S{#Z{}}},#Nil{}}}

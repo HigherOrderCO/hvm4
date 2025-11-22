@@ -1,0 +1,11 @@
+// @add = λ{0: λb.b ; 1+: λa.λb. 1+(@add a b)}
+// @fib = λ{0:0; 1+:λ{0: 1; 1+:λp. ! P & L = p ; (@add (@fib (1+P₀)) (@fib P₁))}}"
+
+@add = λ{ #Z: λb.b ; #S: λp.λb. #S{@add(p, b)}; }
+@fib = λ{ #Z: #Z{} ; #S: λ{ #Z: #S{#Z{}} ; #S: λp. !P&L=p ; @add(@fib(#S{P₀}), @fib(P₁))}} 
+
+@two = #S{#S{#Z{}}}
+@three = #S{#S{#S{#Z{}}}}
+
+@main = @fib(@add(@three, @three))
+//#S{#S{#S{#S{#S{#S{#S{#S{#Z{}}}}}}}}}

@@ -1,0 +1,11 @@
+#include "_book_.hvm4"
+
+@one = #S{#Z{}}
+@two = #S{#S{#Z{}}}
+
+@add = λ{ #Z: λb.b ; #S: λp.λb.#S{@add(p, b)}; }
+@mul = λ{ #Z: λb.#Z{} ; #S: λp.λb. !B&A=b @add(B₀, @mul(p, B₁)); }
+@fac = λ{ #Z: #S{#Z{}} ; #S: λp. !P&A=p @mul(#S{P₀}, @fac(P₁)); }
+
+@main = @fac(@add(@two, @one)) 
+//#S{#S{#S{#S{#S{#S{#Z{}}}}}}}
