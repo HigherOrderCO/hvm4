@@ -188,10 +188,8 @@ parse_mat = do
     k <- parse_name
     parse_lexeme (char ':')
     h <- parse_term
-    is_semi <- option False (parse_lexeme (char ';') >> return True)
-    m <- if is_semi
-      then (parse_lexeme (char '}') >> return Era) <++ parse_mat_body
-      else (parse_lexeme (char '}') >> return Era)
+    optional (parse_lexeme (char ';'))
+    m <- (parse_lexeme (char '}') >> return Era) <++ parse_mat_body
     return (Mat (name_to_int k) h m)
 
   parse_mat_default = do
@@ -436,23 +434,19 @@ wnf e term = do
     Ref k -> do
       ref e k
     Alo s t -> case t of
-      Var k     -> wnf e $ Var (s !! k)
-      Cop c k   -> wnf e $ Cop c (s !! k)
-      Ref k     -> wnf e $ Ref k
-      Nam k     -> wnf e $ Nam k
-      Dry f x   -> wnf e $ Dry (Alo s f) (Alo s x)
-      Era       -> wnf e $ Era
-      Sup l a b -> wnf e $ Sup l (Alo s a) (Alo s b)
-      Dup k l v t -> do
-        x <- fresh e
-        wnf e $ Dup x l (Alo s v) (Alo (x:s) t)
-      Lam k f -> do
-        x <- fresh e
-        wnf e $ Lam x (Alo (x:s) f)
-      App f x   -> wnf e $ App (Alo s f) (Alo s x)
-      Ctr k xs  -> wnf e $ Ctr k (map (Alo s) xs)
-      Mat k h m -> wnf e $ Mat k (Alo s h) (Alo s m)
-      Alo s' t' -> error "Nested Alo"
+      Var k       -> wnf e $ Var (s !! k)
+      Cop c k     -> wnf e $ Cop c (s !! k)
+      Ref k       -> wnf e $ Ref k
+      Nam k       -> wnf e $ Nam k
+      Dry f x     -> wnf e $ Dry (Alo s f) (Alo s x)
+      Era         -> wnf e $ Era
+      Sup l a b   -> wnf e $ Sup l (Alo s a) (Alo s b)
+      Dup k l v t -> do { x <- fresh e ; wnf e $ Dup x l (Alo s v) (Alo (x:s) t) }
+      Lam k f     -> do { x <- fresh e ; wnf e $ Lam x (Alo (x:s) f) }
+      App f x     -> wnf e $ App (Alo s f) (Alo s x)
+      Ctr k xs    -> wnf e $ Ctr k (map (Alo s) xs)
+      Mat k h m   -> wnf e $ Mat k (Alo s h) (Alo s m)
+      Alo s' t'   -> error "Nested Alo"
     t -> do
       return t
 
