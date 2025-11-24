@@ -28,13 +28,104 @@ In HVM4:
 - Variables are affine; they must occur at most once.
 - Variables range globally; they can occur anywhere.
 
-Reference Interaction
----------------------
+Application Interactions
+------------------------
 
 ```
-@foo
----------------------- ref
-foo ~> @{}(book.foo)
+(&{} a)
+------- app-era
+&{}
+
+(&L{f,g} a)
+----------------- app-sup
+! A &L = a
+&L{(f A₀),(g A₁)}
+
+(λx.f a)
+-------- app-lam
+x ← a
+f
+
+(λ{#K:h; m} &{})
+---------------- app-mat-era
+&{}
+
+(λ{#K:h; m} &L{a,b})
+-------------------- app-mat-sup
+! H &L = h
+! M &L = m
+&L{(λ{#K:H₀; M₀} a)
+  ,(λ{#K:H₁; M₁} b)}
+
+(λ{#K:h; m} #K{a,b})
+-------------------- app-mat-ctr-match
+(h a b)
+
+(λ{#K:h; m} #L{a,b})
+-------------------- app-mat-ctr-miss
+(m #L{a,b})
+
+(^n a)
+------- app-nam
+^(^n a)
+
+(^(f x) a)
+----------- app-dry
+^(^(f x) a)
+```
+
+Duplication Interactions
+------------------------
+
+```
+! X &L = &{}
+------------ dup-era
+X₀ ← &{}
+X₁ ← &{}
+
+! X &L = &R{a,b}
+---------------- dup-sup
+if L == R:
+  X₀ ← a
+  X₁ ← b
+else:
+  ! A &L = a
+  ! B &L = b
+  X₀ ← &R{A₀,B₀}
+  X₁ ← &R{A₁,B₁}
+
+! F &L = λx.f
+---------------- dup-lam
+F₀ ← λ$x0.G₀
+F₁ ← λ$x1.G₁
+x  ← &L{$x0,$x1}
+! G &L = f
+
+! X &L = #K{a,b}
+---------------- dup-ctr
+! A &L = a
+! B &L = b
+X₀ ← #K{A₀,B₀}
+X₁ ← #K{A₁,B₁}
+
+! X &L = λ{#K:h; m}
+------------------- dup-mat
+! H &L = h
+! M &L = m
+X₀ ← λ{#K:H₀; M₀}
+X₁ ← λ{#K:H₁; M₁}
+
+! X &L = ^n
+----------- dup-nam
+X₀ ← ^n
+X₁ ← ^n
+
+! X &L = ^(f x)
+--------------- dup-dry
+! F &L = f
+! A &L = x
+X₀ ← ^(F₀ A₀)
+X₁ ← ^(F₁ A₁)
 ```
 
 Allocation Interactions
@@ -97,102 +188,11 @@ x' ← fresh
 λ{#K: @{s}h; @{s}m}
 ```
 
-Duplication Interactions
-------------------------
+Reference Interaction
+---------------------
 
 ```
-! X &L = &{}
------------- dup-era
-X₀ ← &{}
-X₁ ← &{}
-
-! X &L = &R{a,b}
----------------- dup-sup
-if L == R:
-  X₀ ← a
-  X₁ ← b
-else:
-  ! A &L = a
-  ! B &L = b
-  X₀ ← &R{A₀,B₀}
-  X₁ ← &R{A₁,B₁}
-
-! F &L = λx.f
----------------- dup-lam
-F₀ ← λ$x0.G₀
-F₁ ← λ$x1.G₁
-x  ← &L{$x0,$x1}
-! G &L = f
-
-! X &L = #K{a,b}
----------------- dup-ctr
-! A &L = a
-! B &L = b
-X₀ ← #K{A₀,B₀}
-X₁ ← #K{A₁,B₁}
-
-! X &L = λ{#K:h; m}
-------------------- dup-mat
-! H &L = h
-! M &L = m
-X₀ ← λ{#K:H₀; M₀}
-X₁ ← λ{#K:H₁; M₁}
-
-! X &L = ^n
------------ dup-nam
-X₀ ← ^n
-X₁ ← ^n
-
-! X &L = ^(f x)
---------------- dup-dry
-! F &L = f
-! A &L = x
-X₀ ← ^(F₀ A₀)
-X₁ ← ^(F₁ A₁)
-```
-
-Application Interactions
-------------------------
-
-```
-(&{} a)
-------- app-era
-&{}
-
-(&L{f,g} a)
------------------ app-sup
-! A &L = a
-&L{(f A₀),(g A₁)}
-
-(λx.f a)
--------- app-lam
-x ← a
-f
-
-(λ{#K:h; m} &{})
----------------- app-mat-era
-&{}
-
-(λ{#K:h; m} &L{a,b})
--------------------- app-mat-sup
-! H &L = h
-! M &L = m
-&L{(λ{#K:H₀; M₀} a)
-  ,(λ{#K:H₁; M₁} b)}
-
-(λ{#K:h; m} #K{a,b})
--------------------- app-mat-ctr-match
-(h a b)
-
-(λ{#K:h; m} #L{a,b})
--------------------- app-mat-ctr-miss
-(m #L{a,b})
-
-(^n a)
-------- app-nam
-^(^n a)
-
-(^(f x) a)
------------ app-dry
-^(^(f x) a)
+@foo
+---------------------- ref
+foo ~> @{}(book.foo)
 ```

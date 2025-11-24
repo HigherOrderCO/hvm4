@@ -575,6 +575,7 @@ wnf e term = do
       wnf e t
     Ref k -> do
       ref e k
+    -- TODO: should separate into individual functions (alo_var, alo_cop, etc.)
     Alo s t -> case t of
       Var k       -> wnf e $ Var (s !! k)
       Cop c k     -> wnf e $ Cop c (s !! k)
