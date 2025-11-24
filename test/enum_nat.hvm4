@@ -24,7 +24,9 @@
 @two = #S{#S{#Z{}}}
 @four = #S{#S{#S{#S{#Z{}}}}}
 
+// @main = @if(@eq(@mul(@X, @two), @four), @X, &{})
+@main = @X
+
 // solves x * 2 = 4
-// @main = @if(@eq(@mul(@X, @two), @four), @X, &{}) => NEEDS COLLAPSER TO WORK
-@main = #Z{}
+//@main = #Z{}
 // NEEDS COLLAPSER
