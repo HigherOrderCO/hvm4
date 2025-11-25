@@ -808,7 +808,6 @@ snf e d x = do
 -- Collapsing
 -- ==========
 
--- The Bool flag controls laziness: True = lazy (-C), False = strict (normalize).
 collapse :: Bool -> Env -> Term -> IO Term
 collapse lazy e term = do
   !x <- wnf e term
@@ -884,22 +883,19 @@ flatten term = bfs [term] where
     Sup _ a b -> bfs (ts ++ [a, b])
     _         -> t : bfs ts
 
--- Forcing
--- -------
 -- Forces the entire term tree to avoid carrying lazy collapse thunks into normalization.
-
-force_term :: Term -> IO ()
-force_term term = case term of
+force :: Term -> IO ()
+force term = case term of
   Var k       -> k `seq` return ()
   Cop s k     -> s `seq` k `seq` return ()
   Ref k       -> k `seq` return ()
   Nam n       -> n `seq` return ()
-  Dry f x     -> force_term f >> force_term x
+  Dry f x     -> force f >> force x
   Era         -> return ()
-  Sup l a b   -> l `seq` force_term a >> force_term b
-  Dup k l v t -> k `seq` l `seq` force_term v >> force_term t
-  Lam k f     -> k `seq` force_term f
-  App f x     -> force_term f >> force_term x
-  Ctr k xs    -> k `seq` mapM_ force_term xs
-  Mat k h m   -> k `seq` force_term h >> force_term m
-  Alo _ t     -> force_term t
+  Sup l a b   -> l `seq` force a >> force b
+  Dup k l v t -> k `seq` l `seq` force v >> force t
+  Lam k f     -> k `seq` force f
+  App f x     -> force f >> force x
+  Ctr k xs    -> k `seq` mapM_ force xs
+  Mat k h m   -> k `seq` force h >> force m
+  Alo _ t     -> force t
