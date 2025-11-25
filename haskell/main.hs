@@ -17,10 +17,10 @@ eval_term :: Book -> Term -> Bool -> IO EvalResult
 eval_term bk term normalize = do
   !env <- new_env bk
   !ini <- getCPUTime
-  let lazy_collapse = not normalize
-  val <- collapse lazy_collapse env (Alo [] term)
-  when normalize $ force val
-  !val <- if normalize then snf env 1 val else return val
+  val0 <- collapse env (Alo [] term)
+  val  <- if normalize
+          then force val0 >> snf env 1 val0
+          else return val0
   !end <- getCPUTime
   !itr <- readIORef (env_itrs env)
   !dt  <- return $ fromIntegral (end - ini) / (10 ^ 12)
