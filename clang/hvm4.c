@@ -78,6 +78,120 @@
 // - ALO: lazy alloc
 // - NAM: stuck var
 // - DRY: stuck app
+// 
+// Style Guide
+// -----------
+// Abide to the guidelines below strictly!
+// 
+// > NEVER write single-line ifs, loops, statements, functions.
+// 
+//   Don't:
+//     if { ... }
+//     while { ... }
+//     u32 foo(x) { ... }
+//     foo(); bar();
+// 
+//   Do:
+//     if {
+//       ...
+//     }
+//     while {
+//       ...
+//     }
+//     u32 foo(x) {
+//       ...
+//     }
+//     foo();
+//     bar();
+// 
+// > ALWAYS use switch for Term pattern matching.
+// 
+//   Don't:
+//     if (tag == FOO) {
+//       ...
+//     } else if (tag == BAR) { 
+//       ...
+//     } ...
+//       
+//   Do:
+//     switch (tag) {
+//       case FOO: {
+//         ...
+//       }
+//       case BAR: {
+//         ...
+//       }
+//     }
+// 
+// > Aggressivelly abstract common patterns (DRY).
+// 
+//   When a pattern is repeated in multiple places:
+//   
+//   Don't:
+//     static inline Term <many_fns>(...) {
+//       ...
+//       if (side == 0) {
+//         HEAP[loc] = mark_sub(res1);
+//         return res0;
+//       } else {
+//         HEAP[loc] = mark_sub(res0);
+//         return res1;
+//       }
+//    }
+//   
+//   Do:
+//     static inline Term subst_dup(u8 side, u32 loc, Term r0, Term r1) {
+//       HEAP[loc] = mark_sub(side == 0 ? r1 : r0);
+//       return side == 0 ? r0 : r1;
+//     }
+//     static inline Term <many_fns>(...) {
+//       ...
+//       return subst_dup(side, loc, res0, res1);
+//     }
+//   
+// > Align columns whenever reasonable; adjust names as needed.
+// 
+//   Don't:
+//   
+//   Term abc = foo;
+//   u32 x = 123;
+//   Term the_amazing_cat = bar;
+//   
+//   Do:
+//   
+//   Term abc = foo;
+//   u32  x   = 123;
+//   Term cat = bar;
+//   
+//   Don't:
+//
+//   foo[x] = 123;
+//   foo[x+1] = 456;
+//   
+//   Do:
+//   
+//   foo[x+0] = 123;
+//   foo[x+1] = 456;
+//   
+// > Separate sessions with markdown-inspied headers.
+// 
+//   Don't:
+//   
+//   ---------------------------------
+//   File Session
+//   ---------------------------------
+//   
+//   Do:
+//   
+//   File Session
+//   ============
+//   
+//   File Sub-Session
+//   ----------------
+//   
+//   ### File Sub-Sub-Session
+
+// REQUEST: perhaps replace 'static inline' by a 'DEF' macro?
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -164,7 +278,7 @@ static Term *STACK;
 
 static u32 S_POS = 1;
 static u64 ALLOC = 1;
-static u64 ITRS = 0;
+static u64 ITRS  = 0;
 
 static int DEBUG = 0;
 
@@ -176,6 +290,7 @@ static void error(const char *msg) {
   exit(1);
 }
 
+// REQUEST: simplify if possible
 static void path_join(char *out, int size, const char *base, const char *rel) {
   if (rel[0] == '/') {
     snprintf(out, size, "%s", rel);
@@ -190,6 +305,7 @@ static void path_join(char *out, int size, const char *base, const char *rel) {
   }
 }
 
+// REQUEST: simplify if possible
 static char *file_read(const char *path) {
   FILE *fp = fopen(path, "rb");
   if (!fp) {
@@ -438,7 +554,7 @@ static void print_term_go(Term term, u32 depth) {
     }
     case DUP: {
       u32 loc = val_of(term);
-      u32 name = depth + 1;
+      u32 name = depth + 1; // ← could be 'nam' to align
       printf("!");
       print_name(name);
       printf("&");
@@ -461,7 +577,7 @@ static void print_term_go(Term term, u32 depth) {
       break;
     }
     case CT0 ... CTG: {
-      u32 arity = tag_of(term) - CT0;
+      u32 arity = tag_of(term) - CT0; // ← could be just 'ari' to align
       u32 loc = val_of(term);
       printf("#");
       print_name(ext_of(term));
@@ -764,6 +880,7 @@ static Term parse_var(PState *s, u32 depth) {
   skip(s);
   // Store bruijn index in val field
   u32 val = (idx >= 0) ? (u32)idx : name;
+  // ↓ could be shortened
   if (side == 0) {
     return new_term(0, CO0, 0, val);
   }
@@ -893,6 +1010,14 @@ static void parse_def(PState *s) {
 // Cloning
 // =======
 
+// REQUEST: create a 'Copy' struct with 2 fields, .k0 and .k1
+// then, instead of:
+// Term a0, a1; clone(L, a, &a0, &1);
+// ... a0 ... a1 ...
+// do:
+// Copy A = clone(L, a);
+// ... a.k0 ... a.k1 ...
+
 static void clone(u32 label, Term val, Term *out0, Term *out1) {
   u64 loc = heap_alloc(1);
   HEAP[loc] = val;
@@ -928,12 +1053,12 @@ static Term app_lam(Term lam, Term arg) {
 
 static Term app_sup(Term sup, Term arg) {
   ITRS++;
-  u32 label = ext_of(sup);
+  u32 label = ext_of(sup); // ← could name it just 'lab' to algin
   u32 loc = val_of(sup);
   Term tm0 = HEAP[loc+0];
   Term tm1 = HEAP[loc+1];
   Term arg0, arg1;
-  clone(label, arg, &arg0, &arg1);
+  clone(label, arg, &arg0, &arg1); // ← should use the Copy struct
   return Sup(label, App(tm0, arg0), App(tm1, arg1));
 }
 
@@ -993,7 +1118,7 @@ static Term dup_lam(u32 label, u32 loc, u8 side, Term lam) {
   clone(label, body, &b0, &b1);
   Term lam0 = Lam(b0);
   Term lam1 = Lam(b1);
-  u32 sk0 = val_of(lam0);
+  u32 sk0 = val_of(lam0); // remove sk0, sk1; just inline val_of(lam0) etc.
   u32 sk1 = val_of(lam1);
   Term sup = Sup(label, Var(sk0), Var(sk1));
   HEAP[lam_loc] = mark_sub(sup);
@@ -1014,7 +1139,7 @@ static Term dup_sup(u32 label, u32 loc, u8 side, Term sup) {
   Term tm1 = HEAP[sup_loc+1];
   if (label == sup_label) {
     if (side == 0) {
-      HEAP[loc] = mark_sub(tm1);
+      HEAP[loc] = mark_sub(tm1); // ← we could have a subst_var function like the subst_dup function so we just return subst_var(...)
       return tm0;
     } else {
       HEAP[loc] = mark_sub(tm0);
@@ -1103,6 +1228,9 @@ static Term dup_dry(u32 label, u32 loc, u8 side, Term dry) {
 
 // Alloc Interactions
 // ==================
+
+// ↓ these interactions are seemingly verbose / repetitive, pretty sure we could
+// abstract common patterns out and follow the DRY principle here
 
 static Term alo_var(u32 ls_loc, u32 idx) {
   u32 cur = ls_loc;
@@ -1312,7 +1440,7 @@ static Term wnf(Term term) {
             goto enter;
           }
           case DUP: {
-            u32 book_dup_loc = val_of(book_term);
+            u32 book_dup_loc = val_of(book_term); // ← wnf in general is so bad at aligning equals; we should come up with more succinct variable naming schemes and improve the alignments in general
             u32 book_label = ext_of(book_term);
             next = alo_dup(ls_loc, book_dup_loc, book_label);
             goto enter;
@@ -1368,6 +1496,7 @@ static Term wnf(Term term) {
       case SUP:
       case LAM:
       case MAT:
+      // ↓ this and other places should prefer CT0 ... CTG
       case CT0:
       case CT1:
       case CT2:
@@ -1560,7 +1689,7 @@ static Term snf(Term term, u32 depth) {
     }
     case MAT: {
       u64 loc = val_of(term);
-      HEAP[loc] = snf(HEAP[loc], depth);
+      HEAP[loc] = snf(HEAP[loc], depth); // ← again, bad alignment
       HEAP[loc+1] = snf(HEAP[loc+1], depth);
       return term;
     }
@@ -1660,3 +1789,10 @@ int main(void) {
 
   return 0;
 }
+
+// GOAL: read the file above. then, based on all feedbacks, write an updated,
+// improved version below. keep it complete, including documentation and
+// everything. follow ALL style guidelines.
+// COMPLETE FILE:
+
+//.?.
