@@ -6,24 +6,28 @@
 -- ==========
 
 data EvalResult = EvalResult
-  { eval_norm :: !Term
+  { eval_env  :: !Env
+  , eval_norm :: !Term
   , eval_itrs :: !Int
   , eval_time :: !Double
   , eval_perf :: !Double
   }
 
-eval_term :: Book -> Term -> IO EvalResult
-eval_term bk term = do
+eval_term :: Book -> Term -> Bool -> IO EvalResult
+eval_term bk term normalize = do
   !env <- new_env bk
   !ini <- getCPUTime
-  !val <- collapse env (Alo [] term)
-  !val <- snf env 1 val
+  let lazy_collapse = not normalize
+  val <- collapse lazy_collapse env (Alo [] term)
+  when normalize $ force_term val
+  !val <- if normalize then snf env 1 val else return val
   !end <- getCPUTime
   !itr <- readIORef (env_itrs env)
   !dt  <- return $ fromIntegral (end - ini) / (10 ^ 12)
   !ips <- return $ fromIntegral itr / dt
   return EvalResult
-    { eval_norm = val
+    { eval_env  = env
+    , eval_norm = val
     , eval_itrs = itr
     , eval_time = dt
     , eval_perf = ips
@@ -65,13 +69,16 @@ main = do
     Right o  -> return o
 
   book <- read_book file
-  EvalResult val itrs dt ips <- eval_term book (Ref (name_to_int "main"))
+  let normalize = coll == Nothing
+  EvalResult env val itrs dt ips <- eval_term book (Ref (name_to_int "main")) normalize
 
   case coll of
     Nothing -> print val
     Just lim -> do
       let terms = flatten val
-      forM_ (maybe terms (`take` terms) lim) print
+      forM_ (maybe terms (`take` terms) lim) $ \t -> do
+        t' <- snf env 1 t
+        print t'
 
   when stats $ do
     putStrLn $ "- Itrs: " ++ show itrs ++ " interactions"

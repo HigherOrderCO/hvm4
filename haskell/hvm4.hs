@@ -12,6 +12,7 @@ import System.Exit (exitFailure)
 import System.FilePath ((</>), takeDirectory)
 import System.IO (hPutStrLn, stderr)
 import Text.Printf
+import System.IO.Unsafe (unsafeInterleaveIO)
 import qualified Data.IntMap.Strict as IM
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
@@ -29,19 +30,19 @@ type Lab  = Int
 type Name = Int
 
 data Term
-  = Var !Name
-  | Cop !Int !Name
-  | Ref !Name
-  | Nam !String
-  | Dry !Term !Term
+  = Var Name
+  | Cop Int Name
+  | Ref Name
+  | Nam String
+  | Dry Term Term
   | Era
-  | Sup !Lab !Term !Term
-  | Dup !Name !Lab !Term !Term
-  | Lam !Name !Term
-  | App !Term !Term
-  | Ctr !Name ![Term]
-  | Mat !Name !Term !Term
-  | Alo ![Name] !Term
+  | Sup Lab Term Term
+  | Dup Name Lab Term Term
+  | Lam Name Term
+  | App Term Term
+  | Ctr Name [Term]
+  | Mat Name Term Term
+  | Alo [Name] Term
   deriving (Eq)
 
 data Book = Book (M.Map Name Term)
@@ -807,30 +808,31 @@ snf e d x = do
 -- Collapsing
 -- ==========
 
-collapse :: Env -> Term -> IO Term
-collapse e x = do
-  !x <- wnf e x
+-- The Bool flag controls laziness: True = lazy (-C), False = strict (normalize).
+collapse :: Bool -> Env -> Term -> IO Term
+collapse lazy e term = do
+  !x <- wnf e term
   case x of
 
     Era -> do
       return Era
 
     (Sup l a b) -> do
-      a' <- collapse e a
-      b' <- collapse e b
+      a' <- wrap (collapse lazy e a)
+      b' <- wrap (collapse lazy e b)
       return $ Sup l a' b'
 
     (Lam k f) -> do
       fV <- fresh e
-      f' <- collapse e f
-      inject e (Lam fV (Lam k (Var fV))) [f']
+      f' <- wrap (collapse lazy e f)
+      inject lazy e (Lam fV (Lam k (Var fV))) [f']
 
     (App f x) -> do
       fV <- fresh e
       xV <- fresh e
-      f' <- collapse e f
-      x' <- collapse e x
-      inject e (Lam fV (Lam xV (App (Var fV) (Var xV)))) [f', x']
+      f' <- wrap (collapse lazy e f)
+      x' <- wrap (collapse lazy e x)
+      inject lazy e (Lam fV (Lam xV (App (Var fV) (Var xV)))) [f', x']
 
     Nam n -> do
       return $ Nam n
@@ -838,43 +840,66 @@ collapse e x = do
     Dry f x -> do
       fV <- fresh e
       xV <- fresh e
-      f' <- collapse e f
-      x' <- collapse e x
-      inject e (Lam fV (Lam xV (Dry (Var fV) (Var xV)))) [f', x']
+      f' <- wrap (collapse lazy e f)
+      x' <- wrap (collapse lazy e x)
+      inject lazy e (Lam fV (Lam xV (Dry (Var fV) (Var xV)))) [f', x']
 
     Ctr k xs -> do
       vs <- mapM (\_ -> fresh e) xs
-      as <- mapM (collapse e) xs
-      inject e (foldr Lam (Ctr k (map Var vs)) vs) as
+      as <- mapM (wrap . collapse lazy e) xs
+      inject lazy e (foldr Lam (Ctr k (map Var vs)) vs) as
 
     Mat k h m -> do
       hV <- fresh e
       mV <- fresh e
-      h' <- collapse e h
-      m' <- collapse e m
-      inject e (Lam hV (Lam mV (Mat k (Var hV) (Var mV)))) [h', m']
+      h' <- wrap (collapse lazy e h)
+      m' <- wrap (collapse lazy e m)
+      inject lazy e (Lam hV (Lam mV (Mat k (Var hV) (Var mV)))) [h', m']
 
-    x -> do
-      return $ x
+    x' -> do
+      return $ x'
+  where
+    wrap = if lazy then unsafeInterleaveIO else id
 
-inject :: Env -> Term -> [Term] -> IO Term
-inject e f [] = return f
-inject e f (h:t) = do
-  !h <- wnf e h
-  case h of
+inject :: Bool -> Env -> Term -> [Term] -> IO Term
+inject _ _ f [] = return f
+inject lazy e f (h:t) = wrap $ do
+  h' <- wnf e h
+  case h' of
     Sup l a b -> do
       (f0,f1) <- clone e l f
       (t0,t1) <- clone_list e l t
-      a' <- inject e f0 (a:t0)
-      b' <- inject e f1 (b:t1)
+      a' <- inject lazy e f0 (a:t0)
+      b' <- inject lazy e f1 (b:t1)
       return $ Sup l a' b'
     _ -> do
-      inject e (App f h) t
+      inject lazy e (App f h') t
+  where
+    wrap = if lazy then unsafeInterleaveIO else id
 
 flatten :: Term -> [Term]
-flatten term = bfs [term] [] where
-  bfs []     acc = reverse acc
-  bfs (t:ts) acc = case t of
-    Sup _ a b -> bfs (ts ++ [a, b]) acc
-    _         -> bfs ts (t : acc)
+flatten term = bfs [term] where
+  bfs []     = []
+  bfs (t:ts) = case t of
+    Sup _ a b -> bfs (ts ++ [a, b])
+    _         -> t : bfs ts
 
+-- Forcing
+-- -------
+-- Forces the entire term tree to avoid carrying lazy collapse thunks into normalization.
+
+force_term :: Term -> IO ()
+force_term term = case term of
+  Var k       -> k `seq` return ()
+  Cop s k     -> s `seq` k `seq` return ()
+  Ref k       -> k `seq` return ()
+  Nam n       -> n `seq` return ()
+  Dry f x     -> force_term f >> force_term x
+  Era         -> return ()
+  Sup l a b   -> l `seq` force_term a >> force_term b
+  Dup k l v t -> k `seq` l `seq` force_term v >> force_term t
+  Lam k f     -> k `seq` force_term f
+  App f x     -> force_term f >> force_term x
+  Ctr k xs    -> k `seq` mapM_ force_term xs
+  Mat k h m   -> k `seq` force_term h >> force_term m
+  Alo _ t     -> force_term t

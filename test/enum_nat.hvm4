@@ -26,5 +26,10 @@
 
 // solves x * 2 = 4
 // @main = @if(@eq(@mul(@X, @two), @four), @X, &{}) => NEEDS COLLAPSER TO WORK
-@main = #Z{}
-// NEEDS COLLAPSER
+@main = @X
+// ARGS: -C4
+// EXPECT:
+// #Z{}
+// #S{#Z{}}
+// #S{#S{#Z{}}}
+// #S{#S{#S{#Z{}}}}
