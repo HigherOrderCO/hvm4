@@ -735,6 +735,7 @@ typedef struct {
 typedef struct {
   u32 name;
   u32 depth;
+  u32 lab;
 } PBind;
 
 static char  *PARSE_SEEN_FILES[1024];
@@ -833,8 +834,8 @@ fn void consume(PState *s, const char *str) {
   skip(s);
 }
 
-fn void bind_push(u32 name, u32 depth) {
-  PARSE_BINDS[PARSE_BINDS_LEN++] = (PBind){name, depth};
+fn void bind_push(u32 name, u32 depth, u32 lab) {
+  PARSE_BINDS[PARSE_BINDS_LEN++] = (PBind){name, depth, lab};
 }
 
 fn void bind_pop(void) {
@@ -848,6 +849,15 @@ fn int bind_lookup(u32 name, u32 depth) {
     }
   }
   return -1;
+}
+
+fn u32 bind_lookup_lab(u32 name) {
+  for (int i = PARSE_BINDS_LEN - 1; i >= 0; i--) {
+    if (PARSE_BINDS[i].name == name) {
+      return PARSE_BINDS[i].lab;
+    }
+  }
+  return 0;
 }
 
 fn u32 parse_name(PState *s) {
@@ -899,7 +909,7 @@ fn Term parse_lam(PState *s, u32 depth) {
   }
   u32 nam = parse_name(s);
   consume(s, ".");
-  bind_push(nam, depth);
+  bind_push(nam, depth, 0);
   u64  loc  = heap_alloc(1);
   Term body = parse_term(s, depth + 1);
   HEAP[loc] = body;
@@ -916,7 +926,7 @@ fn Term parse_dup(PState *s, u32 depth) {
   skip(s);
   match(s, ";");
   skip(s);
-  bind_push(nam, depth);
+  bind_push(nam, depth, lab);
   u64 loc       = heap_alloc(2);
   HEAP[loc + 0] = val;
   Term body     = parse_term(s, depth + 1);
@@ -987,8 +997,9 @@ fn Term parse_var(PState *s, u32 depth) {
   int side = match(s, "₀") ? 0 : match(s, "₁") ? 1 : -1;
   skip(s);
   u32 val = (idx >= 0) ? (u32)idx : nam;
+  u32 lab = bind_lookup_lab(nam);
   u8  tag = (side == 0) ? CO0 : (side == 1) ? CO1 : VAR;
-  return new_term(0, tag, 0, val);
+  return new_term(0, tag, lab, val);
 }
 
 fn Term parse_app(Term f, PState *s, u32 depth) {
@@ -1234,31 +1245,20 @@ fn Term dup_node(u32 lab, u32 loc, u8 side, Term term) {
 // Alloc Helpers
 // =============
 //
-// Bind list entries use 2 heap words:
-//   Word 0: heap location (low 32 bits), label (high 32 bits)
-//   Word 1: parent pointer (low 32 bits), unused (high 32 bits)
+// Bind list: a linked list mapping de Bruijn indices to heap locations.
+// Each entry is 1 heap word: (binder_heap_loc << 32) | tail
 
-fn u32 bind_at(u32 ls_loc, u32 idx) {
-  u32 cur = ls_loc;
-  for (u32 i = 0; i < idx && cur != 0; i++) {
-    cur = (u32)(HEAP[cur + 1] & 0xFFFFFFFF);  // parent is in word 1
+fn u32 bind_at(u32 ls, u32 idx) {
+  for (u32 i = 0; i < idx && ls != 0; i++) {
+    ls = (u32)(HEAP[ls] & 0xFFFFFFFF);
   }
-  return (cur != 0) ? (u32)(HEAP[cur] & 0xFFFFFFFF) : 0;  // location is in word 0
+  return (ls != 0) ? (u32)(HEAP[ls] >> 32) : 0;
 }
 
-fn u32 bind_lab_at(u32 ls_loc, u32 idx) {
-  u32 cur = ls_loc;
-  for (u32 i = 0; i < idx && cur != 0; i++) {
-    cur = (u32)(HEAP[cur + 1] & 0xFFFFFFFF);  // parent is in word 1
-  }
-  return (cur != 0) ? (u32)(HEAP[cur] >> 32) : 0;  // label is in high bits of word 0
-}
-
-fn u32 make_bind(u32 parent, u32 loc, u32 lab) {
-  u64 new_bind     = heap_alloc(2);
-  HEAP[new_bind+0] = ((u64)lab << 32) | loc;  // word 0: label + location
-  HEAP[new_bind+1] = parent;                   // word 1: parent pointer
-  return (u32)new_bind;
+fn u32 make_bind(u32 tail, u32 loc) {
+  u64 entry = heap_alloc(1);
+  HEAP[entry] = ((u64)loc << 32) | tail;
+  return (u32)entry;
 }
 
 fn Term make_alo(u32 ls_loc, u32 tm_loc) {
@@ -1275,23 +1275,22 @@ fn Term alo_var(u32 ls_loc, u32 idx) {
   return bind ? Var(bind) : new_term(0, VAR, 0, idx);
 }
 
-fn Term alo_cop(u32 ls_loc, u32 idx, u8 side) {
+fn Term alo_cop(u32 ls_loc, u32 idx, u32 lab, u8 side) {
   u32 bind = bind_at(ls_loc, idx);
-  u32 lab  = bind_lab_at(ls_loc, idx);
   u8  tag  = side == 0 ? CO0 : CO1;
-  return bind ? new_term(0, tag, lab, bind) : new_term(0, tag, 0, idx);
+  return bind ? new_term(0, tag, lab, bind) : new_term(0, tag, lab, idx);
 }
 
 fn Term alo_lam(u32 ls_loc, u32 book_body_loc) {
-  u64  lam_body = heap_alloc(1);
-  u32  new_bind = make_bind(ls_loc, (u32)lam_body, 0);  // label 0 for lambda bindings
+  u64 lam_body  = heap_alloc(1);
+  u32 new_bind  = make_bind(ls_loc, (u32)lam_body);
   HEAP[lam_body] = make_alo(new_bind, book_body_loc);
   return new_term(0, LAM, 0, lam_body);
 }
 
 fn Term alo_dup(u32 ls_loc, u32 book_loc, u32 lab) {
-  u64 dup_val   = heap_alloc(1);
-  u32 new_bind  = make_bind(ls_loc, (u32)dup_val, lab);
+  u64 dup_val  = heap_alloc(1);
+  u32 new_bind = make_bind(ls_loc, (u32)dup_val);
   HEAP[dup_val] = make_alo(ls_loc, book_loc + 0);
   return Dup(lab, make_alo(ls_loc, book_loc + 0), make_alo(new_bind, book_loc + 1));
 }
@@ -1303,7 +1302,6 @@ fn Term alo_node(u32 ls_loc, u32 loc, u8 tag, u32 ext, u32 ari) {
   }
   return New(tag, ext, ari, args);
 }
-
 
 // WNF
 // ===
@@ -1391,7 +1389,7 @@ fn Term wnf(Term term) {
           }
           case CO0:
           case CO1: {
-            result = alo_cop(ls_loc, val_of(book), tag_of(book) == CO0 ? 0 : 1);
+            result = alo_cop(ls_loc, val_of(book), ext_of(book), tag_of(book) == CO0 ? 0 : 1);
             break;
           }
           case LAM: {
