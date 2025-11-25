@@ -1368,69 +1368,52 @@ fn Term wnf(Term term) {
       }
 
       case ALO: {
-        u32 alo_loc = val_of(next);
-        u64 pair    = HEAP[alo_loc];
-
-        // Check if already expanded (SUB bit set means we have a cached result)
-        if (sub_of(pair)) {
-          next = clear_sub(pair);
-          goto enter;
-        }
-
-        u32 tm_loc  = (u32)(pair & 0xFFFFFFFF);
-        u32 ls_loc  = (u32)(pair >> 32);
-        Term book   = HEAP[tm_loc];
-        Term result;
+        u32  alo_loc = val_of(next);
+        u64  pair    = HEAP[alo_loc];
+        u32  tm_loc  = (u32)(pair & 0xFFFFFFFF);
+        u32  ls_loc  = (u32)(pair >> 32);
+        Term book    = HEAP[tm_loc];
 
         switch (tag_of(book)) {
           case VAR: {
-            result = alo_var(ls_loc, val_of(book));
-            break;
+            next = alo_var(ls_loc, val_of(book));
+            goto enter;
           }
           case CO0:
           case CO1: {
-            result = alo_cop(ls_loc, val_of(book), ext_of(book), tag_of(book) == CO0 ? 0 : 1);
-            break;
+            next = alo_cop(ls_loc, val_of(book), ext_of(book), tag_of(book) == CO0 ? 0 : 1);
+            goto enter;
           }
           case LAM: {
-            result = alo_lam(ls_loc, val_of(book));
-            break;
+            next = alo_lam(ls_loc, val_of(book));
+            goto enter;
           }
           case APP:
           case SUP:
           case MAT:
           case DRY:
           case CT0 ... CTG: {
-            result = alo_node(ls_loc, val_of(book), tag_of(book), ext_of(book), arity_of(book));
-            break;
+            next = alo_node(ls_loc, val_of(book), tag_of(book), ext_of(book), arity_of(book));
+            goto enter;
           }
           case DUP: {
-            result = alo_dup(ls_loc, val_of(book), ext_of(book));
-            break;
+            next = alo_dup(ls_loc, val_of(book), ext_of(book));
+            goto enter;
           }
           case REF:
           case NAM: {
-            result = book;
-            break;
+            next = book;
+            goto enter;
           }
           case ERA: {
-            result = Era();
-            break;
-          }
-          case ALO: {
-            whnf = next;
-            goto apply;
+            next = Era();
+            goto enter;
           }
           default: {
             whnf = next;
             goto apply;
           }
         }
-
-        // Memoize the result
-        HEAP[alo_loc] = mark_sub(result);
-        next = result;
-        goto enter;
       }
 
       case NAM:
