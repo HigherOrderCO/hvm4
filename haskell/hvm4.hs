@@ -7,12 +7,12 @@ import Data.IORef
 import Data.List (foldl', elemIndex, intercalate)
 import System.CPUTime
 import System.Directory (canonicalizePath)
-import System.Environment (getArgs)
+import System.Environment (getArgs, lookupEnv)
 import System.Exit (exitFailure)
 import System.FilePath ((</>), takeDirectory)
 import System.IO (hPutStrLn, stderr)
 import Text.Printf
-import System.IO.Unsafe (unsafeInterleaveIO)
+import System.IO.Unsafe (unsafeInterleaveIO, unsafePerformIO)
 import qualified Data.IntMap.Strict as IM
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
@@ -22,6 +22,18 @@ import qualified Data.Set as S
 
 debug :: Bool
 debug = False
+
+debugLazy :: Bool
+debugLazy = unsafePerformIO $ do
+  env <- lookupEnv "HVM_DEBUG_LAZY"
+  return (maybe False (const True) env)
+{-# NOINLINE debugLazy #-}
+
+dbg :: String -> IO ()
+dbg msg = when debugLazy $ hPutStrLn stderr msg
+
+summ :: Show a => a -> String
+summ a = let s = show a in if length s > 80 then take 77 s ++ "..." else s
 
 -- Types
 -- =====
@@ -808,9 +820,9 @@ snf e d x = do
 -- Collapsing
 -- ==========
 
--- Always lazy; consumers decide how much to force (normalization forces, -C streams).
-collapse :: Env -> Term -> IO Term
-collapse e term = do
+-- The Bool flag controls laziness: True = lazy (for -C streaming), False = strict (for normalization).
+collapse :: Bool -> Env -> Term -> IO Term
+collapse lazy e term = do
   !x <- wnf e term
   case x of
 
@@ -818,21 +830,22 @@ collapse e term = do
       return Era
 
     (Sup l a b) -> do
-      a' <- unsafeInterleaveIO (collapse e a)
-      b' <- unsafeInterleaveIO (collapse e b)
+      when debugLazy $ dbg $ "collapse[" ++ mode ++ "] Sup &" ++ int_to_name l
+      a' <- wrap (collapse lazy e a)
+      b' <- wrap (collapse lazy e b)
       return $ Sup l a' b'
 
     (Lam k f) -> do
       fV <- fresh e
-      f' <- unsafeInterleaveIO (collapse e f)
-      inject e (Lam fV (Lam k (Var fV))) [f']
+      f' <- wrap (collapse lazy e f)
+      inject lazy e (Lam fV (Lam k (Var fV))) [f']
 
     (App f x) -> do
       fV <- fresh e
       xV <- fresh e
-      f' <- unsafeInterleaveIO (collapse e f)
-      x' <- unsafeInterleaveIO (collapse e x)
-      inject e (Lam fV (Lam xV (App (Var fV) (Var xV)))) [f', x']
+      f' <- wrap (collapse lazy e f)
+      x' <- wrap (collapse lazy e x)
+      inject lazy e (Lam fV (Lam xV (App (Var fV) (Var xV)))) [f', x']
 
     Nam n -> do
       return $ Nam n
@@ -840,38 +853,47 @@ collapse e term = do
     Dry f x -> do
       fV <- fresh e
       xV <- fresh e
-      f' <- unsafeInterleaveIO (collapse e f)
-      x' <- unsafeInterleaveIO (collapse e x)
-      inject e (Lam fV (Lam xV (Dry (Var fV) (Var xV)))) [f', x']
+      f' <- wrap (collapse lazy e f)
+      x' <- wrap (collapse lazy e x)
+      inject lazy e (Lam fV (Lam xV (Dry (Var fV) (Var xV)))) [f', x']
 
     Ctr k xs -> do
       vs <- mapM (\_ -> fresh e) xs
-      as <- mapM (unsafeInterleaveIO . collapse e) xs
-      inject e (foldr Lam (Ctr k (map Var vs)) vs) as
+      as <- mapM (wrap . collapse lazy e) xs
+      inject lazy e (foldr Lam (Ctr k (map Var vs)) vs) as
 
     Mat k h m -> do
       hV <- fresh e
       mV <- fresh e
-      h' <- unsafeInterleaveIO (collapse e h)
-      m' <- unsafeInterleaveIO (collapse e m)
-      inject e (Lam hV (Lam mV (Mat k (Var hV) (Var mV)))) [h', m']
+      h' <- wrap (collapse lazy e h)
+      m' <- wrap (collapse lazy e m)
+      inject lazy e (Lam hV (Lam mV (Mat k (Var hV) (Var mV)))) [h', m']
 
     x' -> do
       return $ x'
+  where
+    wrap = if lazy then unsafeInterleaveIO else id
+    mode = if lazy then "lazy" else "strict"
 
-inject :: Env -> Term -> [Term] -> IO Term
-inject _ f [] = return f
-inject e f (h:t) = do
+inject :: Bool -> Env -> Term -> [Term] -> IO Term
+inject _ _ f [] = return f
+inject lazy e f (h:t) = do
+  when debugLazy $ dbg $ "inject[" ++ mode ++ "] f=" ++ summ f ++ " args=" ++ show (length (h:t)) ++ " head=" ++ show h ++ "\n"
   h' <- wnf e h
+  when debugLazy $ dbg $ "H' from inject wnf is: " ++ show h'
   case h' of
     Sup l a b -> do
+      when debugLazy $ dbg $ "inject[" ++ mode ++ "] split &" ++ int_to_name l
       (f0,f1) <- clone e l f
       (t0,t1) <- clone_list e l t
-      a' <- unsafeInterleaveIO (inject e f0 (a:t0))
-      b' <- unsafeInterleaveIO (inject e f1 (b:t1))
+      a' <- wrap (inject lazy e f0 (a:t0))
+      b' <- wrap (inject lazy e f1 (b:t1))
       return $ Sup l a' b'
     _ -> do
-      inject e (App f h') t
+      inject lazy e (App f h') t
+  where
+    mode = if lazy then "lazy" else "strict"
+    wrap = if lazy then unsafeInterleaveIO else id
 
 flatten :: Term -> [Term]
 flatten term = bfs [term] where
