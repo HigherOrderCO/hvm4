@@ -1,0 +1,30 @@
+// data Nat { #Z #S{pred} }
+
+@if = λ{
+  #T: λt.λf.t
+  #F: λt.λf.f
+}
+
+@add = λ{ #Z: λb.b ; #S: λp.λb.#S{@add(p, b)}; }
+@mul = λ{ #Z: λb.#Z{} ; #S: λp.λb. !B&A=b ; @add(B₀, @mul(p, B₁)); }
+
+@eq = λ{
+  #Z: λ{
+    #Z: #T{}
+    #S: λbp. #F{}
+  };
+  #S: λap.λ{
+    #Z: #F{}
+    #S: λbp. @eq(ap, bp)
+  };
+}
+
+@X = &Z{#Z{}, #S{@X}}
+
+@two = #S{#S{#Z{}}}
+@four = #S{#S{#S{#S{#Z{}}}}}
+
+// solves x * 2 = 4
+@main = @if(@eq(@add(@X, @two), @four), @X, &{})
+//1
+//#S{#S{#Z{}}}
