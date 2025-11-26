@@ -1,3 +1,3 @@
 #include "_book_.hvm4"
-@main = @c8(@c8b, @cnot, @ctru)
+@main = @c8(@k8, @cnot, @ctru)
 //λa.λb.a

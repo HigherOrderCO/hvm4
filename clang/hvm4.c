@@ -15,7 +15,7 @@
 // Tag Encoding
 // ------------
 // - CO0/CO1: Two tags for Cop (copy) nodes, representing sides 0 and 1
-// - CT0-CTG: Constructor tags encode arity directly (CT0+n for n fields, max 16)
+// - CTR...CTR+CTR_MAX_ARI: Constructor tags encode arity directly (CTR+n for n fields)
 // - Names (variable, constructor, reference) use 6-char base64 strings encoded
 //   as 24-bit integers fitting in the EXT field
 //
@@ -79,6 +79,17 @@
 // - NAM: stuck var
 // - DRY: stuck app
 //
+// Collapse Function
+// -----------------
+// Extracts superpositions (SUP) to the top level. For each term type:
+// 1. Collapse subterms recursively
+// 2. Build a template: nested lambdas that reconstruct the term
+// 3. Call inject(template, collapsed_subterms)
+// This will move the term to inside SUP layers, 'collapsing' it.
+//
+// Key: VARs in templates must point to their binding lambda's body location.
+// For LAM, the inner lambda MUST reuse lam_loc so existing VARs stay bound.
+//
 // Style Guide
 // -----------
 // Abide to the guidelines below strictly!
@@ -131,22 +142,22 @@
 //     fn Term <many_fns>(...) {
 //       ...
 //       if (side == 0) {
-//         HEAP[loc] = mark_sub(res1);
+//         subst_var(loc, res1);
 //         return res0;
 //       } else {
-//         HEAP[loc] = mark_sub(res0);
+//         subst_var(loc, res0);
 //         return res1;
 //       }
 //    }
 //
 //   Do:
-//     fn Term subst_dup(u8 side, u32 loc, Term r0, Term r1) {
-//       HEAP[loc] = mark_sub(side == 0 ? r1 : r0);
+//     fn Term subst_cop(u8 side, u32 loc, Term r0, Term r1) {
+//       subst_var(loc, side == 0 ? r1 : r0);
 //       return side == 0 ? r0 : r1;
 //     }
 //     fn Term <many_fns>(...) {
 //       ...
-//       return subst_dup(side, loc, res0, res1);
+//       return subst_cop(side, loc, res0, res1);
 //     }
 //
 //   In general, spend some time reasoning about opportunities to apply the DRY
@@ -217,6 +228,7 @@ typedef struct {
   Term k1;
 } Copy;
 
+
 // Function Definition Macro
 // =========================
 
@@ -238,23 +250,8 @@ typedef struct {
 #define SUP 10
 #define DUP 11
 #define MAT 12
-#define CT0 13
-#define CT1 14
-#define CT2 15
-#define CT3 16
-#define CT4 17
-#define CT5 18
-#define CT6 19
-#define CT7 20
-#define CT8 21
-#define CT9 22
-#define CTA 23
-#define CTB 24
-#define CTC 25
-#define CTD 26
-#define CTE 27
-#define CTF 28
-#define CTG 29
+#define CTR 13
+#define CTR_MAX_ARI 16
 
 // Bit Layout
 // ==========
@@ -347,16 +344,37 @@ fn u8 sub_of(Term t) {
   return (t >> SUB_SHIFT) & SUB_MASK;
 }
 
-fn u8 tag_of(Term t) {
+fn u8 tag(Term t) {
   return (t >> TAG_SHIFT) & TAG_MASK;
 }
 
-fn u32 ext_of(Term t) {
+fn u32 ext(Term t) {
   return (t >> EXT_SHIFT) & EXT_MASK;
 }
 
-fn u32 val_of(Term t) {
+fn u32 val(Term t) {
   return (t >> VAL_SHIFT) & VAL_MASK;
+}
+
+fn u32 arity_of(Term t) {
+  switch (tag(t)) {
+    case LAM: {
+      return 1;
+    }
+    case APP:
+    case SUP:
+    case DUP:
+    case MAT:
+    case DRY: {
+      return 2;
+    }
+    case CTR ... CTR + CTR_MAX_ARI: {
+      return tag(t) - CTR;
+    }
+    default: {
+      return 0;
+    }
+  }
 }
 
 fn Term mark_sub(Term t) {
@@ -379,7 +397,7 @@ fn u64 heap_alloc(u64 size) {
 // Names
 // =====
 
-static const char *alphabet = "_abcdefghijklmnopqrstuvwxyzABCfnGHIJKLMNOPQRSTUVWXYZ0123456789$";
+static const char *alphabet = "_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789$";
 
 fn int char_to_b64(char c) {
   if (c == '_') {
@@ -468,7 +486,7 @@ fn Term Mat(u32 nam, Term val, Term nxt) {
 }
 
 fn Term Ctr(u32 nam, u32 ari, Term *args) {
-  return New(CT0 + ari, nam, ari, args);
+  return New(CTR + ari, nam, ari, args);
 }
 
 // Cloning
@@ -483,64 +501,100 @@ fn Copy clone(u32 lab, Term val) {
   };
 }
 
-// Dup Substitution Helper
-// -----------------------
+fn void clone_many(u32 lab, Term *src, u32 n, Term *dst0, Term *dst1) {
+  for (u32 i = 0; i < n; i++) {
+    Copy c  = clone(lab, src[i]);
+    dst0[i] = c.k0;
+    dst1[i] = c.k1;
+  }
+}
 
-fn Term subst_dup(u8 side, u32 loc, Term r0, Term r1) {
+// Substitution Helpers
+// --------------------
+
+fn void subst_var(u32 loc, Term val) {
+  HEAP[loc] = mark_sub(val);
+}
+
+fn Term subst_cop(u8 side, u32 loc, Term r0, Term r1) {
   HEAP[loc] = mark_sub(side == 0 ? r1 : r0);
   return side == 0 ? r0 : r1;
 }
 
 // Stringifier
 // ===========
+//
+// Unified term stringification with two output modes:
+// - STR_LOG: print to stdout
+// - STR_BUF: write to TERM_BUF
 
-fn void print_name(u32 n) {
-  if (n < 64) {
-    putchar(alphabet[n]);
+#define STR_LOG 0
+#define STR_BUF 1
+
+static u8    STR_MODE    = STR_LOG;
+static char *TERM_BUF    = NULL;
+static u32   TERM_BUF_POS = 0;
+static u32   TERM_BUF_CAP = 0;
+
+fn void str_putc(char c) {
+  if (STR_MODE == STR_LOG) {
+    putchar(c);
   } else {
-    print_name(n / 64);
-    putchar(alphabet[n % 64]);
+    if (TERM_BUF_POS + 1 >= TERM_BUF_CAP) {
+      TERM_BUF_CAP *= 2;
+      TERM_BUF = realloc(TERM_BUF, TERM_BUF_CAP);
+    }
+    TERM_BUF[TERM_BUF_POS++] = c;
+    TERM_BUF[TERM_BUF_POS]   = 0;
   }
 }
 
-fn void print_term_go(Term term, u32 depth);
+fn void str_puts(const char *s) {
+  while (*s) {
+    str_putc(*s++);
+  }
+}
 
-fn void print_term_go(Term term, u32 depth) {
-  switch (tag_of(term)) {
-    case VAR: {
-      print_name(val_of(term));
+fn void str_name(u32 n) {
+  if (n < 64) {
+    str_putc(alphabet[n]);
+  } else {
+    str_name(n / 64);
+    str_putc(alphabet[n % 64]);
+  }
+}
+
+fn void str_term_go(Term term, u32 depth);
+
+fn void str_term_go(Term term, u32 depth) {
+  switch (tag(term)) {
+    case VAR:
+    case NAM: {
+      str_name(val(term));
       break;
     }
     case REF: {
-      printf("@");
-      print_name(ext_of(term));
-      break;
-    }
-    case NAM: {
-      print_name(val_of(term));
+      str_putc('@');
+      str_name(ext(term));
       break;
     }
     case ERA: {
-      printf("&{}");
+      str_puts("&{}");
       break;
     }
-    case CO0: {
-      print_name(val_of(term));
-      printf("₀");
-      break;
-    }
+    case CO0:
     case CO1: {
-      print_name(val_of(term));
-      printf("₁");
+      str_name(val(term));
+      str_puts(tag(term) == CO0 ? "₀" : "₁");
       break;
     }
     case LAM: {
-      u32 loc = val_of(term);
+      u32 loc = val(term);
       u32 nam = depth + 1;
-      printf("λ");
-      print_name(nam);
-      printf(".");
-      print_term_go(HEAP[loc], depth + 1);
+      str_puts("λ");
+      str_name(nam);
+      str_putc('.');
+      str_term_go(HEAP[loc], depth + 1);
       break;
     }
     case APP:
@@ -548,87 +602,108 @@ fn void print_term_go(Term term, u32 depth) {
       Term spine[256];
       u32  len  = 0;
       Term curr = term;
-      while ((tag_of(curr) == APP || tag_of(curr) == DRY) && len < 256) {
-        u32 loc = val_of(curr);
+      while ((tag(curr) == APP || tag(curr) == DRY) && len < 256) {
+        u32 loc = val(curr);
         spine[len++] = HEAP[loc + 1];
         curr = HEAP[loc];
       }
-      if (tag_of(curr) == LAM) {
-        printf("(");
-        print_term_go(curr, depth);
-        printf(")");
+      if (tag(curr) == LAM) {
+        str_putc('(');
+        str_term_go(curr, depth);
+        str_putc(')');
       } else {
-        print_term_go(curr, depth);
+        str_term_go(curr, depth);
       }
-      printf("(");
+      str_putc('(');
       for (u32 i = 0; i < len; i++) {
         if (i > 0) {
-          printf(",");
+          str_putc(',');
         }
-        print_term_go(spine[len - 1 - i], depth);
+        str_term_go(spine[len - 1 - i], depth);
       }
-      printf(")");
+      str_putc(')');
       break;
     }
     case SUP: {
-      u32 loc = val_of(term);
-      printf("&");
-      print_name(ext_of(term));
-      printf("{");
-      print_term_go(HEAP[loc + 0], depth);
-      printf(",");
-      print_term_go(HEAP[loc + 1], depth);
-      printf("}");
+      u32 loc = val(term);
+      str_putc('&');
+      str_name(ext(term));
+      str_putc('{');
+      str_term_go(HEAP[loc + 0], depth);
+      str_putc(',');
+      str_term_go(HEAP[loc + 1], depth);
+      str_putc('}');
       break;
     }
     case DUP: {
-      u32 loc = val_of(term);
+      u32 loc = val(term);
       u32 nam = depth + 1;
-      printf("!");
-      print_name(nam);
-      printf("&");
-      print_name(ext_of(term));
-      printf("=");
-      print_term_go(HEAP[loc + 0], depth);
-      printf(";");
-      print_term_go(HEAP[loc + 1], depth + 1);
+      str_putc('!');
+      str_name(nam);
+      str_putc('&');
+      str_name(ext(term));
+      str_putc('=');
+      str_term_go(HEAP[loc + 0], depth);
+      str_putc(';');
+      str_term_go(HEAP[loc + 1], depth + 1);
       break;
     }
     case MAT: {
-      u32 loc = val_of(term);
-      printf("λ{#");
-      print_name(ext_of(term));
-      printf(":");
-      print_term_go(HEAP[loc + 0], depth);
-      printf(";");
-      print_term_go(HEAP[loc + 1], depth);
-      printf("}");
+      u32 loc = val(term);
+      str_puts("λ{#");
+      str_name(ext(term));
+      str_putc(':');
+      str_term_go(HEAP[loc + 0], depth);
+      str_putc(';');
+      str_term_go(HEAP[loc + 1], depth);
+      str_putc('}');
       break;
     }
-    case CT0 ... CTG: {
-      u32 ari = tag_of(term) - CT0;
-      u32 loc = val_of(term);
-      printf("#");
-      print_name(ext_of(term));
-      printf("{");
+    case CTR ... CTR + CTR_MAX_ARI: {
+      u32 ari = tag(term) - CTR;
+      u32 loc = val(term);
+      str_putc('#');
+      str_name(ext(term));
+      str_putc('{');
       for (u32 i = 0; i < ari; i++) {
         if (i > 0) {
-          printf(",");
+          str_putc(',');
         }
-        print_term_go(HEAP[loc + i], depth);
+        str_term_go(HEAP[loc + i], depth);
       }
-      printf("}");
+      str_putc('}');
       break;
     }
     case ALO: {
-      printf("<ALO>");
+      str_puts("<ALO>");
       break;
     }
   }
 }
 
 fn void print_term(Term term) {
-  print_term_go(term, 0);
+  STR_MODE = STR_LOG;
+  str_term_go(term, 0);
+}
+
+fn void term_buf_init(void) {
+  TERM_BUF_CAP = 65536;
+  TERM_BUF     = malloc(TERM_BUF_CAP);
+  TERM_BUF_POS = 0;
+}
+
+fn void term_buf_free(void) {
+  free(TERM_BUF);
+  TERM_BUF     = NULL;
+  TERM_BUF_POS = 0;
+  TERM_BUF_CAP = 0;
+}
+
+fn char *term_to_str(Term term) {
+  STR_MODE     = STR_BUF;
+  TERM_BUF_POS = 0;
+  str_term_go(term, 0);
+  return TERM_BUF;
 }
 
 // Parser
@@ -646,6 +721,7 @@ typedef struct {
 typedef struct {
   u32 name;
   u32 depth;
+  u32 lab;
 } PBind;
 
 static char  *PARSE_SEEN_FILES[1024];
@@ -744,21 +820,24 @@ fn void consume(PState *s, const char *str) {
   skip(s);
 }
 
-fn void bind_push(u32 name, u32 depth) {
-  PARSE_BINDS[PARSE_BINDS_LEN++] = (PBind){name, depth};
+fn void bind_push(u32 name, u32 depth, u32 lab) {
+  PARSE_BINDS[PARSE_BINDS_LEN++] = (PBind){name, depth, lab};
 }
 
 fn void bind_pop(void) {
   PARSE_BINDS_LEN--;
 }
 
-fn int bind_lookup(u32 name, u32 depth) {
+fn void bind_lookup(u32 name, u32 depth, int *idx, u32 *lab) {
   for (int i = PARSE_BINDS_LEN - 1; i >= 0; i--) {
     if (PARSE_BINDS[i].name == name) {
-      return depth - 1 - PARSE_BINDS[i].depth;
+      *idx = depth - 1 - PARSE_BINDS[i].depth;
+      *lab = PARSE_BINDS[i].lab;
+      return;
     }
   }
-  return -1;
+  *idx = -1;
+  *lab = 0;
 }
 
 fn u32 parse_name(PState *s) {
@@ -810,7 +889,7 @@ fn Term parse_lam(PState *s, u32 depth) {
   }
   u32 nam = parse_name(s);
   consume(s, ".");
-  bind_push(nam, depth);
+  bind_push(nam, depth, 0);
   u64  loc  = heap_alloc(1);
   Term body = parse_term(s, depth + 1);
   HEAP[loc] = body;
@@ -827,7 +906,7 @@ fn Term parse_dup(PState *s, u32 depth) {
   skip(s);
   match(s, ";");
   skip(s);
-  bind_push(nam, depth);
+  bind_push(nam, depth, lab);
   u64 loc       = heap_alloc(2);
   HEAP[loc + 0] = val;
   Term body     = parse_term(s, depth + 1);
@@ -876,12 +955,7 @@ fn Term parse_ctr(PState *s, u32 depth) {
 }
 
 fn Term parse_ref(PState *s) {
-  skip(s);
-  if (peek(s) == '{') {
-    parse_error(s, "reference name", peek(s));
-  }
-  u32 nam = parse_name(s);
-  return Ref(nam);
+  return Ref(parse_name(s));
 }
 
 fn Term parse_par(PState *s, u32 depth) {
@@ -893,13 +967,15 @@ fn Term parse_par(PState *s, u32 depth) {
 fn Term parse_var(PState *s, u32 depth) {
   skip(s);
   u32 nam = parse_name(s);
-  int idx = bind_lookup(nam, depth);
+  int idx;
+  u32 lab;
+  bind_lookup(nam, depth, &idx, &lab);
   skip(s);
   int side = match(s, "₀") ? 0 : match(s, "₁") ? 1 : -1;
   skip(s);
   u32 val = (idx >= 0) ? (u32)idx : nam;
   u8  tag = (side == 0) ? CO0 : (side == 1) ? CO1 : VAR;
-  return new_term(0, tag, 0, val);
+  return new_term(0, tag, lab, val);
 }
 
 fn Term parse_app(Term f, PState *s, u32 depth) {
@@ -950,9 +1026,24 @@ fn Term parse_term(PState *s, u32 depth) {
   return parse_app(t, s, depth);
 }
 
-fn void do_include(PState *s, const char *filename) {
-  char path[1024];
+fn void parse_include(PState *s) {
+  // Parse filename
+  skip(s);
+  consume(s, "\"");
+  u32 start = s->pos;
+  while (peek(s) != '"' && !at_end(s)) {
+    advance(s);
+  }
+  u32 len = s->pos - start;
+  consume(s, "\"");
+
+  // Resolve path
+  char filename[256], path[1024];
+  memcpy(filename, s->src + start, len);
+  filename[len] = 0;
   path_join(path, sizeof(path), s->file, filename);
+
+  // Check if already included
   for (u32 i = 0; i < PARSE_SEEN_FILES_LEN; i++) {
     if (strcmp(PARSE_SEEN_FILES[i], path) == 0) {
       return;
@@ -962,6 +1053,8 @@ fn void do_include(PState *s, const char *filename) {
     error("MAX_INCLUDES");
   }
   PARSE_SEEN_FILES[PARSE_SEEN_FILES_LEN++] = strdup(path);
+
+  // Read and parse
   char *src = file_read(path);
   if (!src) {
     fprintf(stderr, "Error: could not open '%s'\n", path);
@@ -977,22 +1070,6 @@ fn void do_include(PState *s, const char *filename) {
   };
   parse_def(&sub);
   free(src);
-}
-
-fn void parse_include(PState *s) {
-  skip(s);
-  consume(s, "\"");
-  u32 start = s->pos;
-  while (peek(s) != '"' && !at_end(s)) {
-    advance(s);
-  }
-  u32   end      = s->pos;
-  consume(s, "\"");
-  char *filename = malloc(end - start + 1);
-  memcpy(filename, s->src + start, end - start);
-  filename[end - start] = 0;
-  do_include(s, filename);
-  free(filename);
 }
 
 fn void parse_def(PState *s) {
@@ -1022,33 +1099,28 @@ fn void parse_def(PState *s) {
 // Beta Interactions
 // =================
 
-fn Term app_era(Term era, Term arg) {
+fn Term app_era(void) {
   ITRS++;
   return Era();
 }
 
-fn Term app_nam(Term nam, Term arg) {
+fn Term app_stuck(Term fun, Term arg) {
   ITRS++;
-  return Dry(nam, arg);
-}
-
-fn Term app_dry(Term dry, Term arg) {
-  ITRS++;
-  return Dry(dry, arg);
+  return Dry(fun, arg);
 }
 
 fn Term app_lam(Term lam, Term arg) {
   ITRS++;
-  u32  loc  = val_of(lam);
+  u32  loc  = val(lam);
   Term body = HEAP[loc];
-  HEAP[loc] = mark_sub(arg);
+  subst_var(loc, arg);
   return body;
 }
 
 fn Term app_sup(Term sup, Term arg) {
   ITRS++;
-  u32  lab = ext_of(sup);
-  u32  loc = val_of(sup);
+  u32  lab = ext(sup);
+  u32  loc = val(sup);
   Term tm0 = HEAP[loc + 0];
   Term tm1 = HEAP[loc + 1];
   Copy A   = clone(lab, arg);
@@ -1058,16 +1130,11 @@ fn Term app_sup(Term sup, Term arg) {
 // Match Interactions
 // ==================
 
-fn Term app_mat_era(Term mat, Term arg) {
-  ITRS++;
-  return Era();
-}
-
 fn Term app_mat_sup(Term mat, Term sup) {
   ITRS++;
-  u32  lab = ext_of(sup);
+  u32  lab = ext(sup);
   Copy M   = clone(lab, mat);
-  u32  loc = val_of(sup);
+  u32  loc = val(sup);
   Term a   = HEAP[loc + 0];
   Term b   = HEAP[loc + 1];
   return Sup(lab, App(M.k0, a), App(M.k1, b));
@@ -1075,118 +1142,80 @@ fn Term app_mat_sup(Term mat, Term sup) {
 
 fn Term app_mat_ctr(Term mat, Term ctr) {
   ITRS++;
-  u32 mat_nam = ext_of(mat);
-  u32 ctr_nam = ext_of(ctr);
-  u32 mat_loc = val_of(mat);
-  u32 ctr_loc = val_of(ctr);
-  u32 ari     = tag_of(ctr) - CT0;
-  Term val    = HEAP[mat_loc + 0];
-  Term nxt    = HEAP[mat_loc + 1];
-  if (mat_nam == ctr_nam) {
-    Term res = val;
+  u32 ari = tag(ctr) - CTR;
+  if (ext(mat) == ext(ctr)) {
+    Term res = HEAP[val(mat)];
     for (u32 i = 0; i < ari; i++) {
-      res = App(res, HEAP[ctr_loc + i]);
+      res = App(res, HEAP[val(ctr) + i]);
     }
     return res;
   } else {
-    return App(nxt, ctr);
+    return App(HEAP[val(mat) + 1], ctr);
   }
 }
 
 // Dup Interactions
 // ================
 
-fn Term dup_era(u32 lab, u32 loc, u8 side, Term era) {
-  ITRS++;
-  HEAP[loc] = mark_sub(Era());
-  return Era();
-}
-
 fn Term dup_lam(u32 lab, u32 loc, u8 side, Term lam) {
   ITRS++;
-  u32  lam_loc = val_of(lam);
-  Term body    = HEAP[lam_loc];
-  Copy B       = clone(lab, body);
-  Term lam0    = Lam(B.k0);
-  Term lam1    = Lam(B.k1);
-  Term sup     = Sup(lab, Var(val_of(lam0)), Var(val_of(lam1)));
-  HEAP[lam_loc] = mark_sub(sup);
-  return subst_dup(side, loc, lam0, lam1);
+  Copy B   = clone(lab, HEAP[val(lam)]);
+  Term l0  = Lam(B.k0);
+  Term l1  = Lam(B.k1);
+  subst_var(val(lam), Sup(lab, Var(val(l0)), Var(val(l1))));
+  return subst_cop(side, loc, l0, l1);
 }
 
 fn Term dup_sup(u32 lab, u32 loc, u8 side, Term sup) {
   ITRS++;
-  u32  sup_lab = ext_of(sup);
-  u32  sup_loc = val_of(sup);
-  Term tm0     = HEAP[sup_loc + 0];
-  Term tm1     = HEAP[sup_loc + 1];
-  if (lab == sup_lab) {
-    return subst_dup(side, loc, tm0, tm1);
+  Term tm0 = HEAP[val(sup) + 0];
+  Term tm1 = HEAP[val(sup) + 1];
+  if (lab == ext(sup)) {
+    return subst_cop(side, loc, tm0, tm1);
   } else {
-    Copy A   = clone(lab, tm0);
-    Copy B   = clone(lab, tm1);
-    Term r0  = Sup(sup_lab, A.k0, B.k0);
-    Term r1  = Sup(sup_lab, A.k1, B.k1);
-    return subst_dup(side, loc, r0, r1);
+    Copy A  = clone(lab, tm0);
+    Copy B  = clone(lab, tm1);
+    Term r0 = Sup(ext(sup), A.k0, B.k0);
+    Term r1 = Sup(ext(sup), A.k1, B.k1);
+    return subst_cop(side, loc, r0, r1);
   }
 }
 
-fn Term dup_ctr(u32 lab, u32 loc, u8 side, Term ctr) {
+fn Term dup_node(u32 lab, u32 loc, u8 side, Term term) {
   ITRS++;
-  u32  ari     = tag_of(ctr) - CT0;
-  u32  ctr_nam = ext_of(ctr);
-  u32  ctr_loc = val_of(ctr);
+  u32 ari = arity_of(term);
+  if (ari == 0) {
+    subst_var(loc, term);
+    return term;
+  }
+  u32  t_loc = val(term);
+  u32  t_ext = ext(term);
+  u8   t_tag = tag(term);
   Term args0[16], args1[16];
   for (u32 i = 0; i < ari; i++) {
-    Copy A    = clone(lab, HEAP[ctr_loc + i]);
-    args0[i]  = A.k0;
-    args1[i]  = A.k1;
+    Copy A   = clone(lab, HEAP[t_loc + i]);
+    args0[i] = A.k0;
+    args1[i] = A.k1;
   }
-  Term r0 = Ctr(ctr_nam, ari, args0);
-  Term r1 = Ctr(ctr_nam, ari, args1);
-  return subst_dup(side, loc, r0, r1);
-}
-
-fn Term dup_mat(u32 lab, u32 loc, u8 side, Term mat) {
-  ITRS++;
-  u32  mat_nam = ext_of(mat);
-  u32  mat_loc = val_of(mat);
-  Term val     = HEAP[mat_loc + 0];
-  Term nxt     = HEAP[mat_loc + 1];
-  Copy V       = clone(lab, val);
-  Copy N       = clone(lab, nxt);
-  Term r0      = Mat(mat_nam, V.k0, N.k0);
-  Term r1      = Mat(mat_nam, V.k1, N.k1);
-  return subst_dup(side, loc, r0, r1);
-}
-
-fn Term dup_nam(u32 lab, u32 loc, u8 side, Term nam) {
-  ITRS++;
-  HEAP[loc] = mark_sub(nam);
-  return nam;
-}
-
-fn Term dup_dry(u32 lab, u32 loc, u8 side, Term dry) {
-  ITRS++;
-  u32  dry_loc = val_of(dry);
-  Term tm0     = HEAP[dry_loc + 0];
-  Term tm1     = HEAP[dry_loc + 1];
-  Copy A       = clone(lab, tm0);
-  Copy B       = clone(lab, tm1);
-  Term r0      = Dry(A.k0, B.k0);
-  Term r1      = Dry(A.k1, B.k1);
-  return subst_dup(side, loc, r0, r1);
+  Term r0 = New(t_tag, t_ext, ari, args0);
+  Term r1 = New(t_tag, t_ext, ari, args1);
+  return subst_cop(side, loc, r0, r1);
 }
 
 // Alloc Helpers
 // =============
 
-fn u32 bind_at(u32 ls_loc, u32 idx) {
-  u32 cur = ls_loc;
-  for (u32 i = 0; i < idx && cur != 0; i++) {
-    cur = (u32)(HEAP[cur] >> 32);
+fn u32 bind_at(u32 ls, u32 idx) {
+  for (u32 i = 0; i < idx && ls != 0; i++) {
+    ls = (u32)(HEAP[ls] & 0xFFFFFFFF);
   }
-  return (cur != 0) ? (u32)(HEAP[cur] & 0xFFFFFFFF) : 0;
+  return (ls != 0) ? (u32)(HEAP[ls] >> 32) : 0;
+}
+
+fn u32 make_bind(u32 tail, u32 loc) {
+  u64 entry = heap_alloc(1);
+  HEAP[entry] = ((u64)loc << 32) | tail;
+  return (u32)entry;
 }
 
 fn Term make_alo(u32 ls_loc, u32 tm_loc) {
@@ -1203,54 +1232,32 @@ fn Term alo_var(u32 ls_loc, u32 idx) {
   return bind ? Var(bind) : new_term(0, VAR, 0, idx);
 }
 
-fn Term alo_co0(u32 ls_loc, u32 lab, u32 idx) {
+fn Term alo_cop(u32 ls_loc, u32 idx, u32 lab, u8 side) {
   u32 bind = bind_at(ls_loc, idx);
-  return bind ? Co0(lab, bind) : new_term(0, CO0, lab, idx);
-}
-
-fn Term alo_co1(u32 ls_loc, u32 lab, u32 idx) {
-  u32 bind = bind_at(ls_loc, idx);
-  return bind ? Co1(lab, bind) : new_term(0, CO1, lab, idx);
+  u8  tag  = side == 0 ? CO0 : CO1;
+  return bind ? new_term(0, tag, lab, bind) : new_term(0, tag, lab, idx);
 }
 
 fn Term alo_lam(u32 ls_loc, u32 book_body_loc) {
-  u64 lam_body   = heap_alloc(1);
-  u64 new_bind   = heap_alloc(1);
-  HEAP[new_bind] = ((u64)ls_loc << 32) | (u32)lam_body;
+  u64 lam_body  = heap_alloc(1);
+  u32 new_bind  = make_bind(ls_loc, (u32)lam_body);
   HEAP[lam_body] = make_alo(new_bind, book_body_loc);
   return new_term(0, LAM, 0, lam_body);
 }
 
-fn Term alo_app(u32 ls_loc, u32 app_loc) {
-  return App(make_alo(ls_loc, app_loc + 0), make_alo(ls_loc, app_loc + 1));
-}
-
 fn Term alo_dup(u32 ls_loc, u32 book_loc, u32 lab) {
-  u64 dup_val    = heap_alloc(1);
-  u64 new_bind   = heap_alloc(1);
-  HEAP[new_bind] = ((u64)ls_loc << 32) | (u32)dup_val;
-  HEAP[dup_val]  = make_alo(ls_loc, book_loc + 0);
+  u64 dup_val  = heap_alloc(1);
+  u32 new_bind = make_bind(ls_loc, (u32)dup_val);
+  HEAP[dup_val] = make_alo(ls_loc, book_loc + 0);
   return Dup(lab, make_alo(ls_loc, book_loc + 0), make_alo(new_bind, book_loc + 1));
 }
 
-fn Term alo_sup(u32 ls_loc, u32 sup_loc, u32 lab) {
-  return Sup(lab, make_alo(ls_loc, sup_loc + 0), make_alo(ls_loc, sup_loc + 1));
-}
-
-fn Term alo_mat(u32 ls_loc, u32 mat_loc, u32 nam) {
-  return Mat(nam, make_alo(ls_loc, mat_loc + 0), make_alo(ls_loc, mat_loc + 1));
-}
-
-fn Term alo_ctr(u32 ls_loc, u32 ctr_loc, u32 nam, u32 ari) {
+fn Term alo_node(u32 ls_loc, u32 loc, u8 tag, u32 ext, u32 ari) {
   Term args[16];
   for (u32 i = 0; i < ari; i++) {
-    args[i] = make_alo(ls_loc, ctr_loc + i);
+    args[i] = make_alo(ls_loc, loc + i);
   }
-  return Ctr(nam, ari, args);
-}
-
-fn Term alo_dry(u32 ls_loc, u32 dry_loc) {
-  return Dry(make_alo(ls_loc, dry_loc + 0), make_alo(ls_loc, dry_loc + 1));
+  return New(tag, ext, ari, args);
 }
 
 // WNF
@@ -1268,9 +1275,9 @@ fn Term wnf(Term term) {
       printf("\n");
     }
 
-    switch (tag_of(next)) {
+    switch (tag(next)) {
       case VAR: {
-        u32 loc = val_of(next);
+        u32 loc = val(next);
         if (sub_of(HEAP[loc])) {
           next = clear_sub(HEAP[loc]);
           goto enter;
@@ -1281,7 +1288,7 @@ fn Term wnf(Term term) {
 
       case CO0:
       case CO1: {
-        u32 loc = val_of(next);
+        u32 loc = val(next);
         if (sub_of(HEAP[loc])) {
           next = clear_sub(HEAP[loc]);
           goto enter;
@@ -1293,7 +1300,7 @@ fn Term wnf(Term term) {
       }
 
       case APP: {
-        u32  loc = val_of(next);
+        u32  loc = val(next);
         Term fun = HEAP[loc];
         STACK[S_POS++] = next;
         next = fun;
@@ -1301,14 +1308,14 @@ fn Term wnf(Term term) {
       }
 
       case DUP: {
-        u32  loc  = val_of(next);
+        u32  loc  = val(next);
         Term body = HEAP[loc + 1];
         next = body;
         goto enter;
       }
 
       case REF: {
-        u32 nam = ext_of(next);
+        u32 nam = ext(next);
         if (BOOK[nam] != 0) {
           next = make_alo(0, BOOK[nam]);
           goto enter;
@@ -1318,72 +1325,45 @@ fn Term wnf(Term term) {
       }
 
       case ALO: {
-        u32 alo_loc = val_of(next);
-        u64 pair    = HEAP[alo_loc];
-        u32 tm_loc  = (u32)(pair & 0xFFFFFFFF);
-        u32 ls_loc  = (u32)(pair >> 32);
-        Term book   = HEAP[tm_loc];
+        u32  alo_loc = val(next);
+        u64  pair    = HEAP[alo_loc];
+        u32  tm_loc  = (u32)(pair & 0xFFFFFFFF);
+        u32  ls_loc  = (u32)(pair >> 32);
+        Term book    = HEAP[tm_loc];
 
-        switch (tag_of(book)) {
+        switch (tag(book)) {
           case VAR: {
-            next = alo_var(ls_loc, val_of(book));
+            next = alo_var(ls_loc, val(book));
             goto enter;
           }
-          case CO0: {
-            next = alo_co0(ls_loc, ext_of(book), val_of(book));
-            goto enter;
-          }
+          case CO0:
           case CO1: {
-            next = alo_co1(ls_loc, ext_of(book), val_of(book));
+            next = alo_cop(ls_loc, val(book), ext(book), tag(book) == CO0 ? 0 : 1);
             goto enter;
           }
           case LAM: {
-            next = alo_lam(ls_loc, val_of(book));
+            next = alo_lam(ls_loc, val(book));
             goto enter;
           }
-          case APP: {
-            next = alo_app(ls_loc, val_of(book));
+          case APP:
+          case SUP:
+          case MAT:
+          case DRY:
+          case CTR ... CTR + CTR_MAX_ARI: {
+            next = alo_node(ls_loc, val(book), tag(book), ext(book), arity_of(book));
             goto enter;
           }
           case DUP: {
-            next = alo_dup(ls_loc, val_of(book), ext_of(book));
+            next = alo_dup(ls_loc, val(book), ext(book));
             goto enter;
           }
-          case SUP: {
-            next = alo_sup(ls_loc, val_of(book), ext_of(book));
-            goto enter;
-          }
-          case MAT: {
-            next = alo_mat(ls_loc, val_of(book), ext_of(book));
-            goto enter;
-          }
-          case CT0 ... CTG: {
-            next = alo_ctr(ls_loc, val_of(book), ext_of(book), tag_of(book) - CT0);
-            goto enter;
-          }
-          case REF: {
+          case REF:
+          case NAM:
+          case ERA: {
             next = book;
             goto enter;
           }
-          case ERA: {
-            whnf = Era();
-            goto apply;
-          }
-          case NAM: {
-            whnf = book;
-            goto apply;
-          }
-          case DRY: {
-            next = alo_dry(ls_loc, val_of(book));
-            goto enter;
-          }
-          case ALO: {
-            whnf = next;
-            goto apply;
-          }
         }
-        whnf = next;
-        goto apply;
       }
 
       case NAM:
@@ -1392,7 +1372,7 @@ fn Term wnf(Term term) {
       case SUP:
       case LAM:
       case MAT:
-      case CT0 ... CTG: {
+      case CTR ... CTR + CTR_MAX_ARI: {
         whnf = next;
         goto apply;
       }
@@ -1414,22 +1394,19 @@ fn Term wnf(Term term) {
     while (S_POS > 0) {
       Term frame = STACK[--S_POS];
 
-      switch (tag_of(frame)) {
+      switch (tag(frame)) {
         case APP: {
-          u32  loc = val_of(frame);
+          u32  loc = val(frame);
           Term arg = HEAP[loc + 1];
 
-          switch (tag_of(whnf)) {
+          switch (tag(whnf)) {
             case ERA: {
-              whnf = app_era(whnf, arg);
+              whnf = app_era();
               continue;
             }
-            case NAM: {
-              whnf = app_nam(whnf, arg);
-              continue;
-            }
+            case NAM:
             case DRY: {
-              whnf = app_dry(whnf, arg);
+              whnf = app_stuck(whnf, arg);
               continue;
             }
             case LAM: {
@@ -1456,9 +1433,9 @@ fn Term wnf(Term term) {
 
         case MAT: {
           Term mat = frame;
-          switch (tag_of(whnf)) {
+          switch (tag(whnf)) {
             case ERA: {
-              whnf = app_mat_era(mat, whnf);
+              whnf = app_era();
               continue;
             }
             case SUP: {
@@ -1466,7 +1443,7 @@ fn Term wnf(Term term) {
               next = whnf;
               goto enter;
             }
-            case CT0 ... CTG: {
+            case CTR ... CTR + CTR_MAX_ARI: {
               whnf = app_mat_ctr(mat, whnf);
               next = whnf;
               goto enter;
@@ -1480,15 +1457,11 @@ fn Term wnf(Term term) {
 
         case CO0:
         case CO1: {
-          u8  side = (tag_of(frame) == CO0) ? 0 : 1;
-          u32 loc  = val_of(frame);
-          u32 lab  = ext_of(frame);
+          u8  side = (tag(frame) == CO0) ? 0 : 1;
+          u32 loc  = val(frame);
+          u32 lab  = ext(frame);
 
-          switch (tag_of(whnf)) {
-            case ERA: {
-              whnf = dup_era(lab, loc, side, whnf);
-              continue;
-            }
+          switch (tag(whnf)) {
             case LAM: {
               whnf = dup_lam(lab, loc, side, whnf);
               next = whnf;
@@ -1499,31 +1472,23 @@ fn Term wnf(Term term) {
               next = whnf;
               goto enter;
             }
-            case CT0 ... CTG: {
-              whnf = dup_ctr(lab, loc, side, whnf);
-              next = whnf;
-              goto enter;
-            }
-            case MAT: {
-              whnf = dup_mat(lab, loc, side, whnf);
-              next = whnf;
-              goto enter;
-            }
+            case ERA:
             case NAM: {
-              whnf = dup_nam(lab, loc, side, whnf);
+              whnf = dup_node(lab, loc, side, whnf);
               continue;
             }
-            case DRY: {
-              whnf = dup_dry(lab, loc, side, whnf);
+            case MAT:
+            case DRY:
+            case CTR ... CTR + CTR_MAX_ARI: {
+              whnf = dup_node(lab, loc, side, whnf);
               next = whnf;
               goto enter;
             }
             default: {
-              u64 new_loc    = heap_alloc(1);
-              HEAP[new_loc]  = whnf;
-              u8  other_side = side == 0 ? 1 : 0;
-              HEAP[loc]      = mark_sub(new_term(0, side == 0 ? CO1 : CO0, lab, new_loc));
-              whnf           = new_term(0, side == 0 ? CO0 : CO1, lab, new_loc);
+              u64 new_loc   = heap_alloc(1);
+              HEAP[new_loc] = whnf;
+              subst_var(loc, new_term(0, side == 0 ? CO1 : CO0, lab, new_loc));
+              whnf          = new_term(0, side == 0 ? CO0 : CO1, lab, new_loc);
               continue;
             }
           }
@@ -1544,113 +1509,212 @@ fn Term wnf(Term term) {
 
 fn Term snf(Term term, u32 depth) {
   term = wnf(term);
-  switch (tag_of(term)) {
+  u32 ari = arity_of(term);
+  if (ari == 0) {
+    return term;
+  }
+  u64 loc = val(term);
+  if (tag(term) == LAM) {
+    Term body = HEAP[loc];
+    subst_var(loc, Nam(depth + 1));
+    HEAP[loc] = snf(body, depth + 1);
+  } else {
+    for (u32 i = 0; i < ari; i++) {
+      HEAP[loc + i] = snf(HEAP[loc + i], depth);
+    }
+  }
+  return term;
+}
+
+// Collapse
+// ========
+//
+// Collapse brings all SUPs to the top level of a term. This is needed for
+// observing superpositions (e.g., enumerating all possibilities).
+//
+// The algorithm works as follows:
+// 1. WNF the term first
+// 2. For SUP: recursively collapse both branches, keep SUP at top
+// 3. For other compound terms: collapse all subterms, then use inject
+//    to distribute any SUPs that appear in subterms
+//
+// inject(template, [args]) applies args to template using App nodes.
+// When an arg is a SUP, it clones the template and remaining args,
+// distributing the SUP to create two branches.
+
+// Forward declarations
+fn Term collapse(Term term);
+fn Term inject(Term template, Term *args, u32 n_args);
+
+// inject: Apply a list of collapsed arguments to a template.
+// If any argument is a SUP, clone template and remaining args, distribute SUP.
+fn Term inject(Term template, Term *args, u32 n_args) {
+  if (n_args == 0) {
+    return template;
+  }
+
+  Term head = wnf(args[0]);
+
+  if (tag(head) == SUP) {
+    // SUP found - distribute it
+    u32  lab      = ext(head);
+    u64  sup_loc  = val(head);
+    Term sup_a    = HEAP[sup_loc + 0];
+    Term sup_b    = HEAP[sup_loc + 1];
+
+    // Clone the template and remaining arguments
+    Copy T = clone(lab, template);
+    Term args0[16], args1[16];
+    args0[0] = sup_a;
+    args1[0] = sup_b;
+    clone_many(lab, args + 1, n_args - 1, args0 + 1, args1 + 1);
+
+    // Recursively inject both branches
+    Term r0 = inject(T.k0, args0, n_args);
+    Term r1 = inject(T.k1, args1, n_args);
+
+    return Sup(lab, r0, r1);
+  } else {
+    // Not a SUP - apply it and continue with remaining args
+    Term applied = App(template, head);
+    return inject(applied, args + 1, n_args - 1);
+  }
+}
+
+// collapse: Bring all SUPs to the top level
+fn Term collapse(Term term) {
+  term = wnf(term);
+
+  switch (tag(term)) {
+    case ERA:
     case VAR:
     case REF:
     case NAM:
-    case ERA:
     case CO0:
     case CO1: {
       return term;
     }
+
+    case SUP: {
+      // Recursively collapse both branches, keep SUP at top
+      u64  loc = val(term);
+      Term a   = collapse(HEAP[loc + 0]);
+      Term b   = collapse(HEAP[loc + 1]);
+      return Sup(ext(term), a, b);
+    }
+
     case LAM: {
-      u64  loc  = val_of(term);
-      Term body = HEAP[loc];
-      HEAP[loc] = mark_sub(Nam(depth + 1));
-      body      = snf(body, depth + 1);
-      HEAP[loc] = body;
-      return term;
+      // Haskell: fV <- fresh; f' <- collapse f; inject (Lam fV (Lam k (Var fV))) [f']
+      u64  lam_loc = val(term);
+      Term body    = HEAP[lam_loc];
+
+      // Collapse the body
+      Term body_collapsed = collapse(body);
+
+      // Build template: λfV. (λk. fV)
+      // - outer lambda binds fV, body location = outer_loc
+      // - inner lambda binds k (original), body location = lam_loc
+      // - inner body = Var fV = VAR(outer_loc)
+      u64 outer_loc = heap_alloc(1);
+      HEAP[lam_loc] = new_term(0, VAR, 0, outer_loc);  // inner body = Var fV
+      Term inner_lam = new_term(0, LAM, 0, lam_loc);   // inner lambda (Lam k ...)
+      HEAP[outer_loc] = inner_lam;                     // outer body = inner lambda
+      Term template = new_term(0, LAM, 0, outer_loc);  // outer lambda (Lam fV ...)
+
+      Term args[1] = { body_collapsed };
+      return inject(template, args, 1);
     }
+
     case APP:
-    case MAT:
-    case SUP:
-    case DRY: {
-      u64 loc       = val_of(term);
-      HEAP[loc + 0] = snf(HEAP[loc + 0], depth);
-      HEAP[loc + 1] = snf(HEAP[loc + 1], depth);
-      return term;
-    }
-    case DUP: {
-      printf("TODO\n");
-      abort();
-    }
-    case CT0 ... CTG: {
-      u32 ari = tag_of(term) - CT0;
-      u64 loc = val_of(term);
-      for (u32 i = 0; i < ari; i++) {
-        HEAP[loc + i] = snf(HEAP[loc + i], depth);
+    case DRY:
+    case MAT: {
+      // Template: λaV. λbV. T(aV, bV) where T is APP/DRY/MAT
+      u64  loc = val(term);
+      Term a   = collapse(HEAP[loc + 0]);
+      Term b   = collapse(HEAP[loc + 1]);
+
+      u64 aV_loc = heap_alloc(1);
+      u64 bV_loc = heap_alloc(1);
+      Term aV = new_term(0, VAR, 0, aV_loc);
+      Term bV = new_term(0, VAR, 0, bV_loc);
+
+      Term inner;
+      switch (tag(term)) {
+        case APP: {
+          inner = App(aV, bV);
+          break;
+        }
+        case DRY: {
+          inner = Dry(aV, bV);
+          break;
+        }
+        case MAT: {
+          inner = Mat(ext(term), aV, bV);
+          break;
+        }
+        default: {
+          inner = App(aV, bV);
+          break;
+        }
       }
-      return term;
+
+      HEAP[bV_loc] = inner;
+      Term inner_lam = new_term(0, LAM, 0, bV_loc);
+      HEAP[aV_loc] = inner_lam;
+      Term template = new_term(0, LAM, 0, aV_loc);
+
+      Term args[2] = { a, b };
+      return inject(template, args, 2);
     }
-    case ALO: {
-      return term;
+
+    case CTR ... CTR + CTR_MAX_ARI: {
+      // Haskell: inject (foldr Lam (Ctr k (map Var vs)) vs) as
+      // Template: λv0. λv1. ... Ctr(Var v0, Var v1, ...)
+      u32 ari = tag(term) - CTR;
+      u32 nam = ext(term);
+      u64 loc = val(term);
+
+      if (ari == 0) {
+        return term;
+      }
+
+      // Collapse all fields
+      Term collapsed[16];
+      for (u32 i = 0; i < ari; i++) {
+        collapsed[i] = collapse(HEAP[loc + i]);
+      }
+
+      // Allocate lambda body locations (these are also the var binding points)
+      u64 lam_locs[16];
+      for (u32 i = 0; i < ari; i++) {
+        lam_locs[i] = heap_alloc(1);
+      }
+
+      // Build vars pointing to their respective lambda body locations
+      Term vars[16];
+      for (u32 i = 0; i < ari; i++) {
+        vars[i] = new_term(0, VAR, 0, lam_locs[i]);
+      }
+
+      // Build the Ctr with vars
+      Term ctr = Ctr(nam, ari, vars);
+
+      // Build nested lambdas from inside out
+      // λv0. (λv1. (... (Ctr ...)))
+      // Last lambda (innermost) has body = ctr
+      // Each outer lambda has body = the lambda inside it
+      Term body = ctr;
+      for (int32_t i = ari - 1; i >= 0; i--) {
+        HEAP[lam_locs[i]] = body;
+        body = new_term(0, LAM, 0, lam_locs[i]);
+      }
+      Term template = body;
+
+      return inject(template, collapsed, ari);
     }
+
     default: {
       return term;
     }
   }
-}
-
-// Main
-// ====
-
-int main(void) {
-  BOOK  = calloc(BOOK_CAP, sizeof(u32));
-  HEAP  = calloc(HEAP_CAP, sizeof(Term));
-  STACK = calloc(STACK_CAP, sizeof(Term));
-
-  if (!BOOK || !HEAP || !STACK) {
-    error("Memory allocation failed");
-  }
-
-  const char *source =
-    "@ctru = λt. λf. t\n"
-    "@cfal = λt. λf. f\n"
-    "@cnot = λb. λt. λf. b(f, t)\n"
-    "@main = @cnot(@cnot(@ctru))\n";
-
-  PState s = {
-    .file = "inline",
-    .src  = (char*)source,
-    .pos  = 0,
-    .len  = strlen(source),
-    .line = 1,
-    .col  = 1
-  };
-  parse_def(&s);
-
-  u32 main_name = 0;
-  const char *p = "main";
-  while (*p) {
-    main_name = ((main_name << 6) + char_to_b64(*p)) & EXT_MASK;
-    p++;
-  }
-
-  if (BOOK[main_name] == 0) {
-    error("@main not found");
-  }
-
-  Term main_term = HEAP[BOOK[main_name]];
-
-  clock_t start = clock();
-  Term result   = snf(main_term, 0);
-  clock_t end   = clock();
-
-  double time_sec = (double)(end - start) / CLOCKS_PER_SEC;
-
-  print_term(result);
-  printf("\n");
-  printf("- Itrs: %llu interactions\n", (unsigned long long)ITRS);
-  printf("- Time: %.6f seconds\n", time_sec);
-  if (time_sec > 0) {
-    printf("- Perf: %.0f interactions/second\n", (double)ITRS / time_sec);
-  } else {
-    printf("- Perf: N/A (too fast to measure)\n");
-  }
-
-  free(HEAP);
-  free(BOOK);
-  free(STACK);
-
-  return 0;
 }

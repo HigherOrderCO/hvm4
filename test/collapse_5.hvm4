@@ -1,3 +1,4 @@
 #include "_book_.hvm4"
 @main = λa.λb.!A&L=a;!B&L=b;&L{λx.x(A₀,B₀),λx.x(A₁,B₁)}
-//&L{λa.λb.λc.c(a,b),λa.λb.λc.c(a,b)}
+//λa.λb.λc.c(a,b)
+//λa.λb.λc.c(a,b)

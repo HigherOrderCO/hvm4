@@ -1,3 +1,0 @@
-#include "_book_.hvm4"
-@main = @cexp(@c4, @c2b)
-//λa.λb.a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(a(b))))))))))))))))

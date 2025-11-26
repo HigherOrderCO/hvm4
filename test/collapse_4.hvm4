@@ -1,3 +1,4 @@
 #include "_book_.hvm4"
 @main = λa.!A&L=a;&L{A₀,A₁}
-//&L{λa.a,λa.a}
+//λa.a
+//λa.a

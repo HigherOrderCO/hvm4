@@ -12,11 +12,13 @@ data EvalResult = EvalResult
   , eval_perf :: !Double
   }
 
-eval_term :: Book -> Term -> IO EvalResult
-eval_term bk term = do
+eval_term :: Book -> Bool -> Term -> IO EvalResult
+eval_term bk do_collapse term = do
   !env <- new_env bk
   !ini <- getCPUTime
-  !val <- collapse env (Alo [] term)
+  !val <- if do_collapse
+          then collapse env (Alo [] term)
+          else return (Alo [] term)
   !val <- snf env 1 val
   !end <- getCPUTime
   !itr <- readIORef (env_itrs env)
@@ -65,7 +67,8 @@ main = do
     Right o  -> return o
 
   book <- read_book file
-  EvalResult val itrs dt ips <- eval_term book (Ref (name_to_int "main"))
+  let do_collapse = coll /= Nothing
+  EvalResult val itrs dt ips <- eval_term book do_collapse (Ref (name_to_int "main"))
 
   case coll of
     Nothing -> print val
