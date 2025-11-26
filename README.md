@@ -18,6 +18,12 @@ Term ::=
 | Lam ::= "λ" Name "." Term
 | App ::= "(" Term " " Term ")"
 | Alo ::= "@" "{" [Name] "}" Term
+| DSp ::= "&" "(" Term ")" "{" Term "," Term "}"
+| DDp ::= "!" Name "&" "(" Term ")" "=" Term ";" Term
+| Num ::= Number
+| Sp0 ::= "/Sp0" "(" Term ")"
+| Sp1 ::= "/Sp1" "(" Term ")"
+| Inc ::= "+" Term
 ```
 
 Where:
@@ -195,4 +201,76 @@ Reference Interaction
 @foo
 ---------------------- ref
 foo ~> @{}(book.foo)
+```
+
+Numerical Interactions
+----------------------
+
+```
++N
+------ suc-num
+N+1
+
++&L{x,y}
+--------- suc-sup
+&L{+x,+y}
+
++&{}
+--------- suc-era
+&{}
+
+/Sp0(N)
+--------- sp0-num
+((N * 16293) + 1) % 0xFFFF
+
+/Sp0(&L{x,y})
+------------------ sp0-sup
+&L{/Sp0(x),/Sp0(y)}
+
+/Sp0(&{})
+---------- sp0-era
+&{}
+
+/Sp1(N)
+--------- sp1-num
+((N * 32677) + 3) % 0xFFFF
+
+/Sp1(&L{x,y})
+------------------ sp1-sup
+&L{/Sp1(x),/Sp1(y)}
+
+/Sp1(&{})
+---------- sp1-era
+&{}
+```
+
+Dynamic Label Interactions
+---------------------------
+
+```
+&(L){a,b}
+--------- dsp-num
+&L{a,b}
+
+&(&L{a,b}){c,d}
+---------------------------- dsp-sup
+&L{&(a){C₀,D₀}, &(b){C₁,D₁}}
+
+&(&{}){a,b}
+----------- dsp-era
+&L{a,b}
+
+! &(L) = v; t
+-------------- ddp-num
+!X &L = v; (t X₀ X₁)
+
+! &(&L{a,b}) = v; t
+--------------------- ddp-sup
+!V &L = v;
+!T &L = t;
+&L{!Y&(a)=V₀; T₀, !Z&(b)=V₁; T₁}
+
+! &(&{}) = v; t
+-------------- ddp-era
+(t &{} &{})
 ```
