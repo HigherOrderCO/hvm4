@@ -11,6 +11,7 @@ import System.Environment (getArgs)
 import System.Exit (exitFailure)
 import System.FilePath ((</>), takeDirectory)
 import System.IO (hPutStrLn, stderr)
+import System.IO.Unsafe (unsafeInterleaveIO)
 import Text.Printf
 import qualified Data.IntMap.Strict as IM
 import qualified Data.Map.Strict as M
@@ -29,19 +30,19 @@ type Lab  = Int
 type Name = Int
 
 data Term
-  = Var !Name
-  | Cop !Int !Name
-  | Ref !Name
-  | Nam !String
-  | Dry !Term !Term
+  = Var Name
+  | Cop Int Name
+  | Ref Name
+  | Nam String
+  | Dry Term Term
   | Era
-  | Sup !Lab !Term !Term
-  | Dup !Name !Lab !Term !Term
-  | Lam !Name !Term
-  | App !Term !Term
-  | Ctr !Name ![Term]
-  | Mat !Name !Term !Term
-  | Alo ![Name] !Term
+  | Sup Lab Term Term
+  | Dup Name Lab Term Term
+  | Lam Name Term
+  | App Term Term
+  | Ctr Name [Term]
+  | Mat Name Term Term
+  | Alo [Name] Term
   deriving (Eq)
 
 data Book = Book (M.Map Name Term)
@@ -750,7 +751,7 @@ ref e k = do
 -- =============
 
 snf :: Env -> Int -> Term -> IO Term
-snf e d x = do
+snf e d x = unsafeInterleaveIO $ do
   !x' <- wnf e x
   case x' of
 
@@ -808,7 +809,7 @@ snf e d x = do
 -- ==========
 
 collapse :: Env -> Term -> IO Term
-collapse e x = do
+collapse e x = unsafeInterleaveIO $ do
   !x <- wnf e x
   case x of
 
@@ -854,12 +855,9 @@ collapse e x = do
       m' <- collapse e m
       inject e (Lam hV (Lam mV (Mat k (Var hV) (Var mV)))) [h', m']
 
-    x -> do
-      return $ x
-
 inject :: Env -> Term -> [Term] -> IO Term
 inject e f [] = return f
-inject e f (h:t) = do
+inject e f (h:t) = unsafeInterleaveIO $ do
   !h <- wnf e h
   case h of
     Sup l a b -> do
@@ -872,9 +870,8 @@ inject e f (h:t) = do
       inject e (App f h) t
 
 flatten :: Term -> [Term]
-flatten term = bfs [term] [] where
-  bfs []     acc = reverse acc
-  bfs (t:ts) acc = case t of
-    Sup _ a b -> bfs (ts ++ [a, b]) acc
-    _         -> bfs ts (t : acc)
-
+flatten term = go [term] where
+  go []     = []
+  go (t:ts) = case t of
+    Sup _ a b -> go (ts ++ [a, b])
+    _         -> t : go ts  -- Produce leaf immediately, continue lazily
