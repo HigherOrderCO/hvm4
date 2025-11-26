@@ -699,7 +699,7 @@ dup_lam i e k l (Lam vk vf) = do
     subst e 1 k (Lam x1 g1)
     wnf e (Lam x0 g0)
   else do
-    subst e 1 k (Lam x0 g0)
+    subst e 0 k (Lam x0 g0)
     wnf e (Lam x1 g1)
 
 dup_nam :: WnfDup
