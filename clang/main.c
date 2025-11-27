@@ -33,9 +33,11 @@ fn void flatten(Term term, int limit) {
       queue[tail++] = HEAP[loc + 0];
       queue[tail++] = HEAP[loc + 1];
     } else {
-      print_term(t);
-      printf("\n");
-      count++;
+      if (tag(t) != ERA) {
+        print_term(t);
+        printf("\n");
+        count++;
+      }
     }
   }
 

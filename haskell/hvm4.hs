@@ -923,4 +923,5 @@ flatten term = go [term] where
   go []     = []
   go (t:ts) = case t of
     Sup _ a b -> go (ts ++ [a, b])
+    Era       -> go ts
     _         -> t : go ts  -- Produce leaf immediately, continue lazily
