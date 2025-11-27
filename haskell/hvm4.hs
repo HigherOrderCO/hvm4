@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns, CPP #-}
 
 import Control.Monad (foldM, forM_, when)
+import Control.Exception (evaluate)
 import Data.Bits (shiftL)
 import Data.Char (isSpace, isDigit)
 import Data.IORef
@@ -542,29 +543,46 @@ merge_sub = IM.unionWith (\(c0, v0) (c1, v1) -> (min c0 c1, if c1 /= 0 then v1 e
 merge_dup :: IM.IntMap (Lab, Term) -> IM.IntMap (Lab, Term) -> IM.IntMap (Lab, Term)
 merge_dup = IM.intersection
 
-run_mat_branches :: Env -> IO a -> IO b -> IO (a, b)
+force_term :: Term -> Term
+force_term t = case t of
+  Era         -> Era
+  Var k       -> k `seq` t
+  Cop s k     -> s `seq` k `seq` t
+  Ref k       -> k `seq` t
+  Nam n       -> n `seq` t
+  Ctr k xs    -> let !xs' = map force_term xs in Ctr k xs'
+  Lam k f     -> let !f' = force_term f in Lam k f'
+  Alo s b     -> let !b' = force_term b in Alo s b'
+  Dry f x     -> let !f' = force_term f; !x' = force_term x in Dry f' x'
+  Sup l a b   -> let !a' = force_term a; !b' = force_term b in Sup l a' b'
+  Dup k l v b -> let !v' = force_term v; !b' = force_term b in Dup k l v' b'
+  App f x     -> let !f' = force_term f; !x' = force_term x in App f' x'
+  Mat k h m   -> let !h' = force_term h; !m' = force_term m in Mat k h' m'
+
+run_mat_branches :: Env -> (Env -> IO Term) -> (Env -> IO Term) -> IO (Term, Term)
 run_mat_branches e left right = do
-  sub <- readIORef (env_subst e)
-  dp0 <- readIORef (env_dp0 e)
-  dp1 <- readIORef (env_dp1 e)
-  dup <- readIORef (env_dups e)
+  let fork_env = do
+        sub' <- readIORef (env_subst e) >>= newIORef
+        dp0' <- readIORef (env_dp0   e) >>= newIORef
+        dp1' <- readIORef (env_dp1   e) >>= newIORef
+        dup' <- readIORef (env_dups  e) >>= newIORef
+        pure e { env_subst = sub', env_dp0 = dp0', env_dp1 = dp1', env_dups = dup' }
 
-  a <- left
-  sub_a <- readIORef (env_subst e)
-  dp0_a <- readIORef (env_dp0 e)
-  dp1_a <- readIORef (env_dp1 e)
-  dup_a <- readIORef (env_dups e)
+  eL <- fork_env
+  a  <- left eL
+  a  <- evaluate (force_term a)
+  sub_a <- readIORef (env_subst eL)
+  dp0_a <- readIORef (env_dp0 eL)
+  dp1_a <- readIORef (env_dp1 eL)
+  dup_a <- readIORef (env_dups eL)
 
-  writeIORef (env_subst e) sub
-  writeIORef (env_dp0 e)   dp0
-  writeIORef (env_dp1 e)   dp1
-  writeIORef (env_dups e)  dup
-
-  b <- right
-  sub_b <- readIORef (env_subst e)
-  dp0_b <- readIORef (env_dp0 e)
-  dp1_b <- readIORef (env_dp1 e)
-  dup_b <- readIORef (env_dups e)
+  eR <- fork_env
+  b  <- right eR
+  b  <- evaluate (force_term b)
+  sub_b <- readIORef (env_subst eR)
+  dp0_b <- readIORef (env_dp0 eR)
+  dp1_b <- readIORef (env_dp1 eR)
+  dup_b <- readIORef (env_dups eR)
 
   writeIORef (env_subst e) (merge_sub sub_a sub_b)
   writeIORef (env_dp0 e)   (merge_sub dp0_a dp0_b)
@@ -846,7 +864,7 @@ snf e d x = unsafeInterleaveIO $ do
       return $ Ctr k xs'
 
     Mat k h m -> do
-      (h', m') <- run_mat_branches e (snf e d h) (snf e d m)
+      (h', m') <- run_mat_branches e (\e' -> snf e' d h) (\e' -> snf e' d m)
       return $ Mat k h' m'
 
     Alo s t -> do
@@ -898,7 +916,7 @@ collapse e x = unsafeInterleaveIO $ do
     Mat k h m -> do
       hV <- fresh e
       mV <- fresh e
-      (h', m') <- run_mat_branches e (collapse e h) (collapse e m)
+      (h', m') <- run_mat_branches e (\e' -> collapse e' h) (\e' -> collapse e' m)
       inject e (Lam hV (Lam mV (Mat k (Var hV) (Var mV)))) [h', m']
 
     x -> do
