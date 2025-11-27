@@ -1,0 +1,220 @@
+// data Pair {
+//  #Pair{fst snd}
+//}
+//data List {
+//  #Nil
+//  #Cons{head tail}
+//}
+//data Operators {
+//  #Plus
+//  #Mul
+//  #Min
+//  #Max
+//}
+
+// Prelude:
+// -----------
+
+@nat_eq = λ{
+  #Z: λ{
+    #Z: #T{}
+    #S: λp.#F{}
+  } 
+  #S: λp0. λ{
+    #Z: #F{}
+    #S: λp1. @nat_eq(p0, p1)
+  }
+}
+
+@add = λ{ #Z: λb.b ; #S: λp.λb.#S{@add(p, b)}; }
+
+@pred = λ{
+  #Z: #Z{}
+  #S: λp.p
+}
+
+@sub = λ{
+  #Z: λb.#Z{}
+  #S: λp.λ{
+    #Z: #S{p}
+    #S: λp1.@sub(p, p1)
+  }
+}
+
+@abs_diff = λa.λb. !A&D=a ; !A0&D=A₀ ; !B&D=b ; !B0&D=B₀ ;
+  @if(
+    @gte(A₁, B₁),
+    @sub(A0₀, B0₀),
+    @sub(B0₁, A0₁)
+  )
+
+@mul = λ{ #Z: λb.#Z{} ; #S: λp.λb. !B&A=b ; @add(B₀, @mul(p, B₁)); }
+
+@sqr = λx.!X&D=x ;
+  @mul(X₀, X₁)
+
+@lt = λ{
+  #Z: λ{
+    #Z: #F{}
+    #S: λp.#T{}
+  }
+  #S: λp.λ{
+    #Z: #F{}
+    #S: λp1.@lt(p, p1)
+  }
+}
+
+
+@if = λ{
+  #T: λt.λf.t
+  #F: λt.λf.f
+}
+
+@div = λm.λn.
+  !M&D=m ;
+  !N&D=n ;
+  !N1&D=N₀ ;
+  @if(
+    @lt(M₀, N₁),
+    #Z{},
+    #S{@div(@sub(M₁, N1₀), N1₁)}
+  )
+
+@gte = λ{
+  #Z: λ{
+    #Z: #T{}
+    #S: λp.#F{}
+  }
+  #S: λp0.λ{
+    #Z: #T{}
+    #S: λp1.@gte(p0, p1)
+  }
+}
+
+// ₀₁
+@max = λa.λb.
+  !A&A=a ; !B&A=b ;
+  λ{
+    #T: A₀
+    #F: B₀
+  }(@gte(A₁, B₁))
+
+@min = λa.λb.
+  !A&A=a ; !B&A=b ;
+  λ{
+    #T: B₀
+    #F: A₀
+  }(@gte(A₁, B₁))
+
+@one = #S{#Z{}}
+@two = #S{#S{#Z{}}}
+@three = #S{#S{#S{#Z{}}}}
+@four = #S{#S{#S{#S{#Z{}}}}}
+
+//!B&A=b ; B₀ B₁
+@eval_tree = λ{
+  #Leaf: λval.λx.val
+  #Var: λx.x
+  #Node: λop.λlft.λrgt.λx. !X&Z=x ;
+    @eval_op(op, @eval_tree(lft, X₀), @eval_tree(rgt, X₁))
+}
+
+@eval_op = λ{
+  #Plus: λlft.λrgt.@add(lft, rgt) 
+  #Mul: λlft.λrgt.@mul(lft, rgt)
+  #Min: λlft.λrgt.@min(lft, rgt)
+  #Max: λlft.λrgt.@max(lft, rgt)
+}
+
+// @mse(data tree acc acclen)
+@mse = λ{
+  #Nil: λtree.λacc.λacclen.#Pair{acc, acclen}
+  #Cons: λh.λt.λtree.λacc.λacclen.@calc_mse(h, t, tree, acc, acclen)
+}
+
+@calc_mse = λ{
+  #Pair: λx.λy.λt.λtree.λacc.λacclen.
+  !T&D=tree ; 
+  @mse(t, T₀, 
+      @add(
+        acc,
+        @sqr(@abs_diff(@eval_tree(T₁, x), y))
+      ),
+      #S{acclen}
+   ) 
+}
+
+@fit = λtree.λdata.λ{
+  #Pair: λmse.λlen.mse
+}(@mse(data, tree, #Z{}, #Z{}))
+
+// Enumeration
+// ------------
+
+@all_oper = λL.!L0&D=L ; !L1&D=L0₀ ; 
+  &(L0₁){#Plus{}, &(L1₀){#Mul{}, &(L1₁){#Min{}, #Max{}}}}
+
+@consts = #Cons{
+  #Var{}, #Cons{
+    #Leaf{@one},
+    #Cons{
+      #Leaf{@two},
+      #Nil{}
+    }
+  } 
+}
+
+@all_consts = λ{
+  #Nil: λL.&{}
+  #Cons: λh.λt.λL. !L0&d=L ;
+    &(L0₀){h, @all_consts(t, L0₁)}
+}
+
+@all = λ{
+  #Z: λL. @all_consts(@consts, L)
+  #S: λp.λL.
+    !P&D=p ;
+    !P0&D=P₀ ;
+    !P1&D=P₁ ;
+    !P2&D=P1₀ ;
+
+    !L0&D=L ;
+    !L1&D=L0₀ ;
+    !L2&D=L0₁ ;
+    !L3&D=L1₀ ;
+
+    &(L3₁){
+      #Node{
+        @all_oper(L1₁),
+        @all(P1₁, /Sp0(L2₀)), 
+        @all(P2₀, /Sp1(L2₁))
+      },
+
+      @all_consts(@consts, L3₀)
+    }
+}
+
+// Generating data
+// ------------------
+
+// y = x * x
+@data = #Cons{
+  #Pair{@two, @four},
+  #Cons{
+    #Pair{@one, @one},
+    #Cons{
+      #Pair{@three, @sqr(@three)},
+      #Nil{}
+    }
+  }
+}
+
+@X = @all(@one, 1)
+
+// finds y = x * x!
+@main = @if(
+  @nat_eq(@fit(@X, @data), #Z{}) ,
+  @X,
+  &{}
+)
+//#Node{#Mul{},#Var{},#Var{}}
