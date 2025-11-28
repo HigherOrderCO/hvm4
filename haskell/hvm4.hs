@@ -1,6 +1,6 @@
 {-# LANGUAGE BangPatterns, CPP #-}
 
-import Control.Monad (foldM, forM_, when)
+import Control.Monad (foldM, foldM_, forM_, when)
 import Data.Bits (shiftL)
 import Data.Char (isSpace, isDigit)
 import Data.IORef
@@ -16,6 +16,8 @@ import Text.Printf
 import qualified Data.IntMap.Strict as IM
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
+
+import Debug.Trace
 
 -- Config
 -- ======
@@ -455,6 +457,40 @@ read_book path = do
 
 read_term :: String -> Term
 read_term _ = error "read_term not supported in IO parser without IO"
+
+-- Checking Affine
+-- ===============
+
+check_affine :: Term -> IO ()
+check_affine term = do
+  go 0 (M.empty, M.empty, M.empty) term
+  return ()
+  where
+    bump s d k maps@(dp0s, dp1s, vars) =
+      let (suffix, m, res) = case s of
+              0 -> ("₀", dp0s, \m' -> (m'  , dp1s, vars))
+              1 -> ("₁", dp1s, \m' -> (dp0s, m'  , vars))
+              2 -> (" ", vars, \m' -> (dp0s, dp1s,   m'))
+              _ -> error "unreachable"
+      in case M.lookup (d - k - 1) m of
+        Nothing         -> error ("unbound var "       ++ show k ++ suffix)
+        Just n | n >= 1 -> error ("double use of var " ++ int_to_name k ++ suffix ++ " \n" ++ show term)
+        Just n | n == 0 -> return $ res (M.insert (d - k - 1) 1 m)
+      
+    go d maps@(dp0s, dp1s, vars) t = case t of
+      Var k       -> bump 2 d k maps
+      Cop s k     -> bump s d k maps
+      Lam k f     -> go (d+1) (dp0s, dp1s, M.insert d 0 vars) f
+      Dup k _ v b -> go d maps v >>= \m@(dp0s, dp1s, vars) -> go (d+1) (M.insert d 0 dp0s, M.insert d 0 dp1s, vars) b
+      Dry f x     -> go d maps f >>= \m -> go d m x
+      Sup _ a b   -> go d maps a >>= \m -> go d m b
+      App f x     -> go d maps f >>= \m -> go d m x
+      Ctr _ xs    -> foldM (go d) maps xs
+      Mat _ h m   -> go d maps h >>= \m' -> go d m' m
+      Alo _ b     -> go d maps b
+      Ref _       -> return maps
+      Nam _       -> return maps
+      Era         -> return maps
 
 -- Environment
 -- ===========

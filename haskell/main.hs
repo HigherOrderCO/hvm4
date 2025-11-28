@@ -66,7 +66,9 @@ main = do
     Left err -> hPutStrLn stderr err >> exitFailure
     Right o  -> return o
 
-  book <- read_book file
+  book@(Book defs) <- read_book file
+  mapM (check_affine . snd) (M.toList defs)
+
   let do_collapse = coll /= Nothing
   EvalResult val itrs dt ips <- eval_term book do_collapse (Ref (name_to_int "main"))
 
