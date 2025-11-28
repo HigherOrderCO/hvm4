@@ -551,7 +551,9 @@ wnf e term = do
             Dry{} -> dup_dry s e k l v
             Ctr{} -> dup_ctr s e k l v
             Mat{} -> dup_mat s e k l v
-            _     -> return (Dup k l v (Cop s k))
+            _     -> do
+              make_dup e k l v
+              return (Cop s k)
         Nothing -> do
           cop s e k
     App f x -> do
