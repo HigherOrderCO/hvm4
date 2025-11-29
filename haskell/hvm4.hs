@@ -37,12 +37,18 @@ data Term
   | Dry Term Term
   | Era
   | Sup Lab Term Term
+  | Dsp Term Term Term
   | Dup Name Lab Term Term
+  | Ddp Term Term Term
   | Lam Name Term
   | App Term Term
   | Ctr Name [Term]
   | Mat Name Term Term
   | Alo [Name] Term
+  | Num Int
+  | Suc Term
+  | Sp0 Term
+  | Sp1 Term
   deriving (Eq)
 
 data Book = Book (M.Map Name Term)
@@ -70,12 +76,18 @@ instance Show Term where
   show (Dry f x)     = show_app f x
   show Era           = "&{}"
   show (Sup l a b)   = "&" ++ int_to_name l ++ "{" ++ show a ++ "," ++ show b ++ "}"
+  show (Dsp l a b)   = "&(" ++ show l ++ "){" ++ show a ++ "," ++ show b ++ "}"
   show (Dup k l v t) = "!" ++ int_to_name k ++ "&" ++ int_to_name l ++ "=" ++ show v ++ ";" ++ show t
+  show (Ddp l v t)   = "!&(" ++ show l ++ ")=" ++ show v ++ ";" ++ show t
   show (Lam k f)     = "λ" ++ int_to_name k ++ "." ++ show f
   show (App f x)     = show_app f x
   show (Ctr k xs)    = "#" ++ int_to_name k ++ "{" ++ intercalate "," (map show xs) ++ "}"
   show (Mat k h m)   = "λ{#" ++ int_to_name k ++ ":" ++ show h ++ ";" ++ show m ++ "}"
   show (Alo s t)     = "@{" ++ intercalate "," (map int_to_name s) ++ "}" ++ show t
+  show (Num n)       = show n
+  show (Suc t)       = "+" ++ show t
+  show (Sp0 t)       = "/Sp0(" ++ show t ++ ")"
+  show (Sp1 t)       = "/Sp1(" ++ show t ++ ")"
 
 show_app :: Term -> Term -> String
 show_app f x = case f of
@@ -266,11 +278,43 @@ parse_term ps = do
     'λ' -> parse_lam ps
     '!' -> parse_dup ps
     '&' -> parse_sup ps
+    '+' -> parse_suc ps
+    '/' -> parse_sp ps
     '#' -> parse_ctr ps
     '@' -> parse_ref ps
     '(' -> parse_grp ps
-    _   -> parse_var ps
+    _ | isDigit c -> parse_num ps
+      | otherwise -> parse_var ps
   parse_app t ps
+
+parse_suc :: IORef PState -> IO Term
+parse_suc ps = do
+  consume "+" ps
+  t <- parse_term ps
+  return (Suc t)
+
+parse_sp :: IORef PState -> IO Term
+parse_sp ps = do
+  is_sp0 <- match "/Sp0" ps
+  is_sp1 <- if is_sp0 then return False else match "/Sp1" ps
+  case (is_sp0, is_sp1) of
+    (True, _) -> do
+      consume "(" ps
+      t <- parse_term ps
+      consume ")" ps
+      return (Sp0 t)
+    (_, True) -> do
+      consume "(" ps
+      t <- parse_term ps
+      consume ")" ps
+      return (Sp1 t)
+    _ -> parse_err ps "/Sp0 or /Sp1"
+
+parse_num :: IORef PState -> IO Term
+parse_num ps = do
+  digits <- parse_while isDigit ps
+  skip ps
+  return (Num (read digits))
 
 parse_lam :: IORef PState -> IO Term
 parse_lam ps = do
@@ -312,14 +356,26 @@ parse_mat_body ps = do
 parse_dup :: IORef PState -> IO Term
 parse_dup ps = do
   consume "!" ps
-  nam <- parse_name ps
-  consume "&" ps
-  lab <- parse_name ps
-  consume "=" ps
-  val <- parse_term ps
-  consume ";" ps
-  bod <- parse_term ps
-  return (Dup nam lab val bod)
+  c <- peek ps
+  if c == '&' then do
+    consume "&" ps
+    consume "(" ps
+    lab <- parse_term ps
+    consume ")" ps
+    consume "=" ps
+    val <- parse_term ps
+    consume ";" ps
+    bod <- parse_term ps
+    return (Ddp lab val bod)
+  else do
+    nam <- parse_name ps
+    consume "&" ps
+    lab <- parse_name ps
+    consume "=" ps
+    val <- parse_term ps
+    consume ";" ps
+    bod <- parse_term ps
+    return (Dup nam lab val bod)
 
 parse_sup :: IORef PState -> IO Term
 parse_sup ps = do
@@ -329,6 +385,16 @@ parse_sup ps = do
     consume "{" ps
     consume "}" ps
     return Era
+  else if c == '(' then do
+    consume "(" ps
+    lab <- parse_term ps
+    consume ")" ps
+    consume "{" ps
+    t1 <- parse_term ps
+    consume "," ps
+    t2 <- parse_term ps
+    consume "}" ps
+    return (Dsp lab t1 t2)
   else do
     lab <- parse_name ps
     consume "{" ps
@@ -504,12 +570,18 @@ bruijn t = go IM.empty 0 t where
     Dry f x     -> Dry (go env d f) (go env d x)
     Era         -> Era
     Sup l a b   -> Sup l (go env d a) (go env d b)
+    Dsp l a b   -> Dsp (go env d l) (go env d a) (go env d b)
     Dup k l v b -> Dup k l (go env d v) (go (IM.insert k d env) (d + 1) b)
+    Ddp l v b   -> Ddp (go env d l) (go env d v) (go env d b)
     Lam k f     -> Lam k (go (IM.insert k d env) (d + 1) f)
     App f x     -> App (go env d f) (go env d x)
     Ctr k xs    -> Ctr k (map (go env d) xs)
     Mat k h m   -> Mat k (go env d h) (go env d m)
     Alo s b     -> Alo s (go env d b)
+    Num n       -> Num n
+    Suc t       -> Suc (go env d t)
+    Sp0 t       -> Sp0 (go env d t)
+    Sp1 t       -> Sp1 (go env d t)
 
 -- Cloning
 -- =======
@@ -548,6 +620,7 @@ wnf e term = do
             Sup{} -> dup_sup s e k l v
             Lam{} -> dup_lam s e k l v
             Nam{} -> dup_nam s e k l v
+            Num{} -> dup_num s e k l v
             Dry{} -> dup_dry s e k l v
             Ctr{} -> dup_ctr s e k l v
             Mat{} -> dup_mat s e k l v
@@ -577,6 +650,78 @@ wnf e term = do
       wnf e t
     Ref k -> do
       ref e k
+    Num n -> do
+      return (Num n)
+    Suc t -> do
+      t' <- wnf e t
+      case t' of
+        Num n -> do
+          inc_itrs e
+          return (Num (n + 1))
+        Sup l a b -> do
+          inc_itrs e
+          wnf e (Sup l (Suc a) (Suc b))
+        Era -> do
+          inc_itrs e
+          wnf e Era
+        _ -> return (Suc t')
+    Sp0 t -> do
+      t' <- wnf e t
+      case t' of
+        Num n -> do
+          inc_itrs e
+          return (Num (((n * 16293) + 1) `mod` 0xFFFF))
+        Sup l a b -> do
+          inc_itrs e
+          wnf e (Sup l (Sp0 a) (Sp0 b))
+        Era -> do
+          inc_itrs e
+          wnf e Era
+        _ -> return (Sp0 t')
+    Sp1 t -> do
+      t' <- wnf e t
+      case t' of
+        Num n -> do
+          inc_itrs e
+          return (Num (((n * 32677) + 3) `mod` 0xFFFF))
+        Sup l a b -> do
+          inc_itrs e
+          wnf e (Sup l (Sp1 a) (Sp1 b))
+        Era -> do
+          inc_itrs e
+          wnf e Era
+        _ -> return (Sp1 t')
+    Dsp l a b -> do
+      l' <- wnf e l
+      case l' of
+        Num n -> do
+          inc_itrs e
+          wnf e (Sup n a b)
+        Sup lL la lb -> do
+          inc_itrs e
+          (a0, a1) <- clone e lL a
+          (b0, b1) <- clone e lL b
+          wnf e (Sup lL (Dsp la a0 b0) (Dsp lb a1 b1))
+        Era -> do
+          inc_itrs e
+          wnf e Era
+        _ -> return (Dsp l' a b)
+    Ddp l v t -> do
+      l' <- wnf e l
+      case l' of
+        Num n -> do
+          inc_itrs e
+          x <- fresh e
+          wnf e (Dup x n v (App (App t (Cop 0 x)) (Cop 1 x)))
+        Sup lL la lb -> do
+          inc_itrs e
+          (v0, v1) <- clone e lL v
+          (t0, t1) <- clone e lL t
+          wnf e (Sup lL (Ddp la v0 t0) (Ddp lb v1 t1))
+        Era -> do
+          inc_itrs e
+          wnf e (App (App t Era) Era)
+        _ -> return (Ddp l' v t)
     -- TODO: should separate into individual functions (alo_var, alo_cop, etc.)
     Alo s t -> case t of
       Var k       -> wnf e $ Var (s !! k)
@@ -591,6 +736,12 @@ wnf e term = do
       App f x     -> wnf e $ App (Alo s f) (Alo s x)
       Ctr k xs    -> wnf e $ Ctr k (map (Alo s) xs)
       Mat k h m   -> wnf e $ Mat k (Alo s h) (Alo s m)
+      Dsp l a b   -> wnf e $ Dsp (Alo s l) (Alo s a) (Alo s b)
+      Ddp l v b   -> wnf e $ Ddp (Alo s l) (Alo s v) (Alo s b)
+      Num n       -> wnf e $ Num n
+      Suc t       -> wnf e $ Suc (Alo s t)
+      Sp0 t       -> wnf e $ Sp0 (Alo s t)
+      Sp1 t       -> wnf e $ Sp1 (Alo s t)
       Alo s' t'   -> error "Nested Alo"
     t -> do
       return t
@@ -660,6 +811,12 @@ dup_nam i e k _ (Nam n) = do
   inc_itrs e
   subst e k (Nam n)
   wnf e (Nam n)
+
+dup_num :: WnfDup
+dup_num i e k _ (Num n) = do
+  inc_itrs e
+  subst e k (Num n)
+  wnf e (Num n)
 
 dup_dry :: WnfDup
 dup_dry i e k l (Dry vf vx) = do
@@ -762,6 +919,9 @@ snf e d x = unsafeInterleaveIO $ do
     Cop s k -> do
       return $ Cop s k
 
+    Num n -> do
+      return $ Num n
+
     Era -> do
       return $ Era
 
@@ -783,11 +943,29 @@ snf e d x = unsafeInterleaveIO $ do
       x' <- snf e d x
       return $ App f' x'
 
+    Dsp l a b -> do
+      l' <- snf e d l
+      a' <- snf e d a
+      b' <- snf e d b
+      return $ Dsp l' a' b'
+
     Ref k -> do
       return $ Ref k
 
     Nam k -> do
       return $ Nam k
+
+    Suc t -> do
+      t' <- snf e d t
+      return $ Suc t'
+
+    Sp0 t -> do
+      t' <- snf e d t
+      return $ Sp0 t'
+
+    Sp1 t -> do
+      t' <- snf e d t
+      return $ Sp1 t'
 
     Dry f x -> do
       f' <- snf e d f
@@ -802,6 +980,12 @@ snf e d x = unsafeInterleaveIO $ do
       h' <- snf e d h
       m' <- snf e d m
       return $ Mat k h' m'
+
+    Ddp l v t -> do
+      l' <- snf e d l
+      v' <- snf e d v
+      t' <- snf e d t
+      return $ Ddp l' v' t'
 
     Alo s t -> do
       error "Should be gone"
