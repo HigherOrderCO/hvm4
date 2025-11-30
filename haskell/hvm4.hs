@@ -2,6 +2,7 @@
 
 import Control.Monad (foldM, forM_, when)
 import Data.Bits (shiftL)
+import Data.Word (Word32)
 import Data.Char (isSpace, isDigit)
 import Data.IORef
 import Data.List (foldl', elemIndex, intercalate)
@@ -43,7 +44,7 @@ data Term
   | Alo [Name] Term
   | Dsp Term Term Term
   | Ddp Term Term Term
-  | Num Int
+  | Num Word32
   deriving (Eq)
 
 data Book = Book (M.Map Name Term)
@@ -641,7 +642,7 @@ wnf e term = do
       case l' of
         Num n -> do
           inc_itrs e
-          wnf e (Sup n a b)
+          wnf e (Sup (fromIntegral n) a b)
         Sup lL la lb -> do
           inc_itrs e
           (a0, a1) <- clone e lL a
@@ -657,7 +658,7 @@ wnf e term = do
         Num n -> do
           inc_itrs e
           x <- fresh e
-          wnf e (Dup x n v (App (App t (Cop 0 x)) (Cop 1 x)))
+          wnf e (Dup x (fromIntegral n) v (App (App t (Cop 0 x)) (Cop 1 x)))
         Sup lL la lb -> do
           inc_itrs e
           (v0, v1) <- clone e lL v
