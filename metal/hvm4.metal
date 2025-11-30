@@ -65,28 +65,25 @@ inline Term mark_sub(Term t) { return t | (uint64_t(1) << SUB_SHIFT); }
 inline Term clear_sub(Term t) { return t & ~(SUB_MASK << SUB_SHIFT); }
 
 // Simple Term Constructors
-// NOTE: loc parameters use uint64_t to support large heap addresses (>4GB)
-// The val field in Terms is 40 bits, which is sufficient
-inline Term Var(uint64_t loc) { return new_term(0, VAR, 0, loc); }
+inline Term Var(uint32_t loc) { return new_term(0, VAR, 0, loc); }
 inline Term Era() { return new_term(0, ERA, 0, 0); }
-inline Term Co0(uint32_t lab, uint64_t loc) { return new_term(0, CO0, lab, loc); }
-inline Term Co1(uint32_t lab, uint64_t loc) { return new_term(0, CO1, lab, loc); }
+inline Term Co0(uint32_t lab, uint32_t loc) { return new_term(0, CO0, lab, loc); }
+inline Term Co1(uint32_t lab, uint32_t loc) { return new_term(0, CO1, lab, loc); }
 inline Term Nam(uint32_t nam) { return new_term(0, NAM, 0, nam); }
-inline Copy clone_at(uint64_t loc, uint32_t lab) { return Copy{ Co0(lab, loc), Co1(lab, loc) }; }
+inline Copy clone_at(uint32_t loc, uint32_t lab) { return Copy{ Co0(lab, loc), Co1(lab, loc) }; }
 
 // Heap Accessor
 // Terms store physical indices directly. Access is just base[idx].
 // Coalesced access comes from allocation: thread N allocates at positions
 // that are N mod 32 within each warp's slice.
-// NOTE: Uses uint64_t indices to support >8192 threads (large heap offsets exceed 32 bits)
 struct Heap {
   device Term* base;
 
-  inline Term get(uint64_t idx) const {
+  inline Term get(uint32_t idx) const {
     return base[idx];
   }
 
-  inline void set(uint64_t idx, Term val) const {
+  inline void set(uint32_t idx, Term val) const {
     base[idx] = val;
   }
 };
@@ -95,7 +92,7 @@ struct Heap {
 struct State {
   uint32_t alloc;      // Next logical slot to allocate (0, 1, 2, ...)
   uint64_t itrs;       // Interaction counter
-  uint64_t heap_base;  // Physical base: warp_base + lane_id (64-bit to avoid overflow with >8192 threads)
+  uint32_t heap_base;  // Physical base: warp_base + lane_id
   uint32_t simd_width; // Warp width (32)
 };
 
@@ -104,62 +101,61 @@ struct State {
 //   logical slot 0 -> heap_base + 0 * simd_width = heap_base
 //   logical slot 1 -> heap_base + 1 * simd_width = heap_base + 32
 //   logical slot k -> heap_base + k * simd_width
-// NOTE: Returns uint64_t to support large heap offsets with >8192 threads
-inline uint64_t heap_alloc(thread State& st, uint32_t size) {
+inline uint32_t heap_alloc(thread State& st, uint32_t size) {
   uint32_t logical = st.alloc;
   st.alloc += size;
-  return st.heap_base + uint64_t(logical) * uint64_t(st.simd_width);
+  return st.heap_base + logical * st.simd_width;
 }
 
 // Substitution Helpers
-inline void subst_var(const thread Heap& heap, uint64_t loc, Term v) {
+inline void subst_var(const thread Heap& heap, uint32_t loc, Term v) {
   heap.set(loc, mark_sub(v));
 }
 
-inline Term subst_cop(const thread Heap& heap, uint8_t side, uint64_t loc, Term r0, Term r1) {
+inline Term subst_cop(const thread Heap& heap, uint8_t side, uint32_t loc, Term r0, Term r1) {
   heap.set(loc, mark_sub(side == 0 ? r1 : r0));
   return side == 0 ? r0 : r1;
 }
 
 // Term Constructors with Heap
-// Note: heap_alloc returns physical indices (uint64_t). For multi-slot nodes, consecutive
+// Note: heap_alloc returns physical indices. For multi-slot nodes, consecutive
 // logical slots are simd_width apart in physical memory.
 inline Term Lam(const thread Heap& heap, thread State& st, Term bod) {
-  uint64_t loc = heap_alloc(st, 1);
+  uint32_t loc = heap_alloc(st, 1);
   heap.set(loc, bod);
   return new_term(0, LAM, 0, loc);
 }
 
 inline Term App(const thread Heap& heap, thread State& st, Term fun, Term arg) {
-  uint64_t loc = heap_alloc(st, 2);
+  uint32_t loc = heap_alloc(st, 2);
   heap.set(loc, fun);
   heap.set(loc + st.simd_width, arg);
   return new_term(0, APP, 0, loc);
 }
 
 inline Term Sup(const thread Heap& heap, thread State& st, uint32_t lab, Term tm0, Term tm1) {
-  uint64_t loc = heap_alloc(st, 2);
+  uint32_t loc = heap_alloc(st, 2);
   heap.set(loc, tm0);
   heap.set(loc + st.simd_width, tm1);
   return new_term(0, SUP, lab, loc);
 }
 
 inline Term Dry(const thread Heap& heap, thread State& st, Term tm0, Term tm1) {
-  uint64_t loc = heap_alloc(st, 2);
+  uint32_t loc = heap_alloc(st, 2);
   heap.set(loc, tm0);
   heap.set(loc + st.simd_width, tm1);
   return new_term(0, DRY, 0, loc);
 }
 
 inline Term Dup(const thread Heap& heap, thread State& st, uint32_t lab, Term v, Term bod) {
-  uint64_t loc = heap_alloc(st, 2);
+  uint32_t loc = heap_alloc(st, 2);
   heap.set(loc, v);
   heap.set(loc + st.simd_width, bod);
   return new_term(0, DUP, lab, loc);
 }
 
 inline Copy clone(const thread Heap& heap, thread State& st, uint32_t lab, Term v) {
-  uint64_t loc = heap_alloc(st, 1);
+  uint32_t loc = heap_alloc(st, 1);
   heap.set(loc, v);
   return clone_at(loc, lab);
 }
@@ -174,7 +170,7 @@ inline Term app_stuck(const thread Heap& heap, thread State& st, Term fun, Term 
 
 inline Term app_lam(const thread Heap& heap, thread State& st, Term lam, Term arg) {
   st.itrs++;
-  uint64_t loc = val(lam);
+  uint32_t loc = val(lam);
   Term body = heap.get(loc);
   subst_var(heap, loc, arg);
   return body;
@@ -183,10 +179,9 @@ inline Term app_lam(const thread Heap& heap, thread State& st, Term lam, Term ar
 inline Term app_sup(const thread Heap& heap, thread State& st, Term app, Term sup) {
   st.itrs++;
   uint32_t sw = st.simd_width;
-  uint64_t app_loc = val(app), sup_loc = val(sup);
-  uint32_t lab = ext(sup);
+  uint32_t app_loc = val(app), sup_loc = val(sup), lab = ext(sup);
   Term arg = heap.get(app_loc + sw), tm1 = heap.get(sup_loc + sw);
-  uint64_t loc = heap_alloc(st, 3);
+  uint32_t loc = heap_alloc(st, 3);
   heap.set(loc + 2*sw, arg);
   Copy D = clone_at(loc + 2*sw, lab);
   heap.set(sup_loc + sw, D.k0);
@@ -205,7 +200,7 @@ inline Term app_mat_sup(const thread Heap& heap, thread State& st, Term mat, Ter
   uint32_t sw = st.simd_width;
   uint32_t lab = ext(sup);
   Copy M = clone(heap, st, lab, mat);
-  uint64_t loc = val(sup);
+  uint32_t loc = val(sup);
   Term a = heap.get(loc), b = heap.get(loc + sw);
   return Sup(heap, st, lab, App(heap, st, M.k0, a), App(heap, st, M.k1, b));
 }
@@ -214,22 +209,21 @@ inline Term app_mat_ctr(const thread Heap& heap, thread State& st, Term mat, Ter
   st.itrs++;
   uint32_t sw = st.simd_width;
   uint32_t ari = uint32_t(tag(ctr) - CTR);
-  uint64_t mat_loc = val(mat), ctr_loc = val(ctr);
   if (ext(mat) == ext(ctr)) {
-    Term res = heap.get(mat_loc);
-    for (uint32_t i = 0; i < ari; i++) res = App(heap, st, res, heap.get(ctr_loc + uint64_t(i) * sw));
+    Term res = heap.get(val(mat));
+    for (uint32_t i = 0; i < ari; i++) res = App(heap, st, res, heap.get(val(ctr) + i * sw));
     return res;
   }
-  return App(heap, st, heap.get(mat_loc + sw), ctr);
+  return App(heap, st, heap.get(val(mat) + sw), ctr);
 }
 
 // Dup Interactions
-inline Term dup_lam(const thread Heap& heap, thread State& st, uint32_t lab, uint64_t loc, uint8_t side, Term lam) {
+inline Term dup_lam(const thread Heap& heap, thread State& st, uint32_t lab, uint32_t loc, uint8_t side, Term lam) {
   st.itrs++;
   uint32_t sw = st.simd_width;
-  uint64_t lam_loc = val(lam);
+  uint32_t lam_loc = val(lam);
   Term bod = heap.get(lam_loc);
-  uint64_t a = heap_alloc(st, 5);
+  uint32_t a = heap_alloc(st, 5);
   heap.set(a + 4*sw, bod);
   Copy B = clone_at(a + 4*sw, lab);
   heap.set(a + 2*sw, Var(a));
@@ -242,106 +236,103 @@ inline Term dup_lam(const thread Heap& heap, thread State& st, uint32_t lab, uin
   return subst_cop(heap, side, loc, l0, l1);
 }
 
-inline Term dup_sup(const thread Heap& heap, thread State& st, uint32_t lab, uint64_t loc, uint8_t side, Term sup) {
+inline Term dup_sup(const thread Heap& heap, thread State& st, uint32_t lab, uint32_t loc, uint8_t side, Term sup) {
   st.itrs++;
   uint32_t sw = st.simd_width;
-  uint64_t sup_loc = val(sup);
-  uint32_t sup_lab = ext(sup);
+  uint32_t sup_loc = val(sup), sup_lab = ext(sup);
   if (lab == sup_lab) {
     Term tm0 = heap.get(sup_loc), tm1 = heap.get(sup_loc + sw);
     return subst_cop(heap, side, loc, tm0, tm1);
   }
   Copy A = clone_at(sup_loc, lab), B = clone_at(sup_loc + sw, lab);
-  uint64_t a = heap_alloc(st, 4);
+  uint32_t a = heap_alloc(st, 4);
   heap.set(a, A.k0); heap.set(a + sw, B.k0);
   heap.set(a + 2*sw, A.k1); heap.set(a + 3*sw, B.k1);
   Term s0 = new_term(0, SUP, sup_lab, a), s1 = new_term(0, SUP, sup_lab, a + 2*sw);
   return subst_cop(heap, side, loc, s0, s1);
 }
 
-inline Term dup_node(const thread Heap& heap, thread State& st, uint32_t lab, uint64_t loc, uint8_t side, Term term) {
+inline Term dup_node(const thread Heap& heap, thread State& st, uint32_t lab, uint32_t loc, uint8_t side, Term term) {
   st.itrs++;
   uint32_t sw = st.simd_width;
   uint32_t ari = arity_of(term);
   if (ari == 0) { subst_var(heap, loc, term); return term; }
-  uint64_t t_loc = val(term);
-  uint32_t t_ext = ext(term);
+  uint32_t t_loc = val(term), t_ext = ext(term);
   uint8_t t_tag = tag(term);
 
   if (ari == 1) {
     Copy A = clone(heap, st, lab, heap.get(t_loc));
-    uint64_t loc0 = heap_alloc(st, 1), loc1 = heap_alloc(st, 1);
+    uint32_t loc0 = heap_alloc(st, 1), loc1 = heap_alloc(st, 1);
     heap.set(loc0, A.k0); heap.set(loc1, A.k1);
     return subst_cop(heap, side, loc, new_term(0, t_tag, t_ext, loc0), new_term(0, t_tag, t_ext, loc1));
   }
   if (ari == 2) {
     Copy A = clone(heap, st, lab, heap.get(t_loc)), B = clone(heap, st, lab, heap.get(t_loc + sw));
-    uint64_t loc0 = heap_alloc(st, 2), loc1 = heap_alloc(st, 2);
+    uint32_t loc0 = heap_alloc(st, 2), loc1 = heap_alloc(st, 2);
     heap.set(loc0, A.k0); heap.set(loc0 + sw, B.k0);
     heap.set(loc1, A.k1); heap.set(loc1 + sw, B.k1);
     return subst_cop(heap, side, loc, new_term(0, t_tag, t_ext, loc0), new_term(0, t_tag, t_ext, loc1));
   }
   Copy copies[16];
-  for (uint32_t i = 0; i < ari; i++) copies[i] = clone(heap, st, lab, heap.get(t_loc + uint64_t(i) * sw));
-  uint64_t loc0 = heap_alloc(st, ari), loc1 = heap_alloc(st, ari);
-  for (uint32_t i = 0; i < ari; i++) { heap.set(loc0 + uint64_t(i) * sw, copies[i].k0); heap.set(loc1 + uint64_t(i) * sw, copies[i].k1); }
+  for (uint32_t i = 0; i < ari; i++) copies[i] = clone(heap, st, lab, heap.get(t_loc + i * sw));
+  uint32_t loc0 = heap_alloc(st, ari), loc1 = heap_alloc(st, ari);
+  for (uint32_t i = 0; i < ari; i++) { heap.set(loc0 + i * sw, copies[i].k0); heap.set(loc1 + i * sw, copies[i].k1); }
   return subst_cop(heap, side, loc, new_term(0, t_tag, t_ext, loc0), new_term(0, t_tag, t_ext, loc1));
 }
 
 // Alloc Helpers
 // Note: bind entries pack two 32-bit values into 64 bits as (loc << 32) | tail
-// For large heaps (>4GB), the packed values may need to be 64-bit in future
 constant uint64_t PAIR_LO_MASK = 0xFFFFFFFF;
 
-inline uint64_t bind_at(const thread Heap& heap, uint64_t ls, uint32_t idx) {
-  for (uint32_t i = 0; i < idx && ls != 0; i++) ls = uint64_t(heap.get(ls) & PAIR_LO_MASK);
-  return (ls != 0) ? uint64_t(heap.get(ls) >> 32) : 0;
+inline uint32_t bind_at(const thread Heap& heap, uint32_t ls, uint32_t idx) {
+  for (uint32_t i = 0; i < idx && ls != 0; i++) ls = uint32_t(heap.get(ls) & PAIR_LO_MASK);
+  return (ls != 0) ? uint32_t(heap.get(ls) >> 32) : 0;
 }
 
-inline uint64_t make_bind(const thread Heap& heap, thread State& st, uint64_t tail, uint64_t loc) {
-  uint64_t entry = heap_alloc(st, 1);
-  heap.set(entry, (loc << 32) | (tail & PAIR_LO_MASK));
+inline uint32_t make_bind(const thread Heap& heap, thread State& st, uint32_t tail, uint32_t loc) {
+  uint32_t entry = heap_alloc(st, 1);
+  heap.set(entry, (uint64_t(loc) << 32) | uint64_t(tail));
   return entry;
 }
 
-inline Term make_alo(const thread Heap& heap, thread State& st, uint64_t ls_loc, uint32_t tm_loc) {
-  uint64_t loc = heap_alloc(st, 1);
-  heap.set(loc, (ls_loc << 32) | uint64_t(tm_loc));
+inline Term make_alo(const thread Heap& heap, thread State& st, uint32_t ls_loc, uint32_t tm_loc) {
+  uint32_t loc = heap_alloc(st, 1);
+  heap.set(loc, (uint64_t(ls_loc) << 32) | uint64_t(tm_loc));
   return new_term(0, ALO, 0, loc);
 }
 
 // Alloc Interactions
-inline Term alo_var(const thread Heap& heap, uint64_t ls_loc, uint32_t idx) {
-  uint64_t bind = bind_at(heap, ls_loc, idx);
+inline Term alo_var(const thread Heap& heap, uint32_t ls_loc, uint32_t idx) {
+  uint32_t bind = bind_at(heap, ls_loc, idx);
   return bind != 0 ? Var(bind) : new_term(0, VAR, 0, idx);
 }
 
-inline Term alo_cop(const thread Heap& heap, uint64_t ls_loc, uint32_t idx, uint32_t lab, uint8_t side) {
-  uint64_t bind = bind_at(heap, ls_loc, idx);
+inline Term alo_cop(const thread Heap& heap, uint32_t ls_loc, uint32_t idx, uint32_t lab, uint8_t side) {
+  uint32_t bind = bind_at(heap, ls_loc, idx);
   uint8_t tg = side == 0 ? CO0 : CO1;
   return bind != 0 ? new_term(0, tg, lab, bind) : new_term(0, tg, lab, idx);
 }
 
-inline Term alo_lam(const thread Heap& heap, thread State& st, uint64_t ls_loc, uint32_t book_body_loc) {
-  uint64_t lam_body = heap_alloc(st, 1);
-  uint64_t new_bind = make_bind(heap, st, ls_loc, lam_body);
+inline Term alo_lam(const thread Heap& heap, thread State& st, uint32_t ls_loc, uint32_t book_body_loc) {
+  uint32_t lam_body = heap_alloc(st, 1);
+  uint32_t new_bind = make_bind(heap, st, ls_loc, lam_body);
   heap.set(lam_body, make_alo(heap, st, new_bind, book_body_loc));
   return new_term(0, LAM, 0, lam_body);
 }
 
-inline Term alo_dup(const thread Heap& heap, thread State& st, uint64_t ls_loc, uint32_t book_loc, uint32_t lab) {
-  uint64_t dup_val = heap_alloc(st, 1);
-  uint64_t new_bind = make_bind(heap, st, ls_loc, dup_val);
+inline Term alo_dup(const thread Heap& heap, thread State& st, uint32_t ls_loc, uint32_t book_loc, uint32_t lab) {
+  uint32_t dup_val = heap_alloc(st, 1);
+  uint32_t new_bind = make_bind(heap, st, ls_loc, dup_val);
   heap.set(dup_val, make_alo(heap, st, ls_loc, book_loc));
   // book_loc + 1 is in the book (contiguous), so +1 is correct
   return Dup(heap, st, lab, make_alo(heap, st, ls_loc, book_loc), make_alo(heap, st, new_bind, book_loc + 1));
 }
 
-inline Term alo_node(const thread Heap& heap, thread State& st, uint64_t ls_loc, uint32_t loc, uint8_t tg, uint32_t ex, uint32_t ari) {
+inline Term alo_node(const thread Heap& heap, thread State& st, uint32_t ls_loc, uint32_t loc, uint8_t tg, uint32_t ex, uint32_t ari) {
   uint32_t sw = st.simd_width;
-  uint64_t new_loc = heap_alloc(st, ari);
+  uint32_t new_loc = heap_alloc(st, ari);
   // loc + i is in the book (contiguous), so +i is correct for book access
-  for (uint32_t i = 0; i < ari; i++) heap.set(new_loc + uint64_t(i) * sw, make_alo(heap, st, ls_loc, loc + i));
+  for (uint32_t i = 0; i < ari; i++) heap.set(new_loc + i * sw, make_alo(heap, st, ls_loc, loc + i));
   return new_term(0, tg, ex, new_loc);
 }
 
@@ -358,7 +349,7 @@ Term wnf(const thread Heap& heap, device Term* wnf_stack, device uint32_t* book,
     wnf_loops++;
     if (reducing) {
       uint8_t tg = tag(next);
-      uint64_t vl = val(next);
+      uint32_t vl = val(next);
 
       if (tg == VAR) {
         Term h = heap.get(vl);
@@ -391,10 +382,10 @@ Term wnf(const thread Heap& heap, device Term* wnf_stack, device uint32_t* book,
       if (tg == ALO) {
         uint64_t pair = heap.get(vl);
         uint32_t tm_loc = uint32_t(pair & PAIR_LO_MASK);
-        uint64_t ls_loc = pair >> 32;
+        uint32_t ls_loc = uint32_t(pair >> 32);
         Term bk = heap.get(tm_loc);
         uint8_t bt = tag(bk);
-        uint32_t bv = uint32_t(val(bk));
+        uint32_t bv = val(bk);
         uint32_t be = ext(bk);
         if (bt == VAR) { next = alo_var(heap, ls_loc, bv); continue; }
         if (bt == CO0) { next = alo_cop(heap, ls_loc, bv, be, 0); continue; }
@@ -442,7 +433,7 @@ Term wnf(const thread Heap& heap, device Term* wnf_stack, device uint32_t* book,
     // ft == CO0 || ft == CO1
     {
       uint8_t side = (ft == CO0) ? 0 : 1;
-      uint64_t loc = val(frame);
+      uint32_t loc = val(frame);
       uint32_t lab = ext(frame);
       if (wt == LAM) { next = dup_lam(heap, st, lab, loc, side, next); reducing = true; continue; }
       if (wt == SUP) { next = dup_sup(heap, st, lab, loc, side, next); reducing = true; continue; }
@@ -450,7 +441,7 @@ Term wnf(const thread Heap& heap, device Term* wnf_stack, device uint32_t* book,
       if (wt == MAT || wt == DRY) { next = dup_node(heap, st, lab, loc, side, next); reducing = true; continue; }
       if (wt >= CTR && wt <= CTR + CTR_MAX_ARI) { next = dup_node(heap, st, lab, loc, side, next); reducing = true; continue; }
       // Stuck: create co-references
-      uint64_t new_loc = heap_alloc(st, 1);
+      uint32_t new_loc = heap_alloc(st, 1);
       heap.set(new_loc, next);
       subst_var(heap, loc, new_term(0, side == 0 ? CO1 : CO0, lab, new_loc));
       next = new_term(0, side == 0 ? CO0 : CO1, lab, new_loc);
@@ -462,10 +453,8 @@ Term wnf(const thread Heap& heap, device Term* wnf_stack, device uint32_t* book,
 }
 
 // SNF (Strong Normal Form)
-// NOTE: write_loc is uint64_t to support large heap addresses (>4GB)
-// Struct size is still 24 bytes due to alignment
-struct SNFFrame { Term term; uint64_t write_loc; uint32_t depth; uint8_t phase; };
-constant uint64_t SNF_ROOT = 0xFFFFFFFFFFFFFFFF;
+struct SNFFrame { Term term; uint32_t write_loc; uint32_t depth; uint8_t phase; };
+constant uint32_t SNF_ROOT = 0xFFFFFFFF;
 
 Term snf(const thread Heap& heap, device Term* wnf_stack, device SNFFrame* snf_stack, device uint32_t* book, thread State& st, Term term, thread uint32_t& max_wnf, thread uint32_t& max_snf, thread uint32_t& wnf_loops, thread uint32_t& snf_loops) {
   uint32_t snf_pos = 0;
@@ -484,7 +473,7 @@ Term snf(const thread Heap& heap, device Term* wnf_stack, device SNFFrame* snf_s
         if (frame.write_loc != SNF_ROOT) heap.set(frame.write_loc, t);
         else result = t;
       } else {
-        uint64_t loc = val(t);
+        uint32_t loc = val(t);
         snf_stack[snf_pos++] = SNFFrame{t, frame.write_loc, frame.depth, 1};
         if (tag(t) == LAM) {
           Term body = heap.get(loc);
@@ -492,7 +481,7 @@ Term snf(const thread Heap& heap, device Term* wnf_stack, device SNFFrame* snf_s
           snf_stack[snf_pos++] = SNFFrame{body, loc, frame.depth + 1, 0};
         } else {
           for (int32_t i = int32_t(ari) - 1; i >= 0; i--)
-            snf_stack[snf_pos++] = SNFFrame{heap.get(loc + uint64_t(i) * sw), loc + uint64_t(i) * sw, frame.depth, 0};
+            snf_stack[snf_pos++] = SNFFrame{heap.get(loc + uint32_t(i) * sw), loc + uint32_t(i) * sw, frame.depth, 0};
         }
         if (snf_pos > max_snf) max_snf = snf_pos;
       }
@@ -525,11 +514,10 @@ kernel void hvm_run(
 
   uint32_t warp_id = tid / simd_width;
   uint32_t lane_id = tid % simd_width;
-  uint64_t warp_slice_size = heap_per_thr * uint64_t(simd_width);
+  uint64_t warp_slice_size = heap_per_thr * simd_width;
   // Physical base for this thread's heap allocation
   // Thread allocates at: heap_base, heap_base + simd_width, heap_base + 2*simd_width, ...
-  // NOTE: Use uint64_t to avoid overflow with >8192 threads (warp_id * warp_slice_size can exceed 2^32)
-  uint64_t heap_base = uint64_t(book_size) + uint64_t(warp_id) * warp_slice_size + uint64_t(lane_id);
+  uint32_t heap_base = book_size + uint32_t(warp_id * warp_slice_size) + lane_id;
 
   Heap heap;
   heap.base = global_heap;

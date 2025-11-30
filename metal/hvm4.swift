@@ -19,7 +19,7 @@ let TAG_MASK: UInt64 = 0x7F, EXT_MASK: UInt64 = 0xFFFF, VAL_MASK: UInt64 = 0xFFF
 let BOOK_CAP: Int = 1 << 24
 let HEAP_PER_THR: UInt64 = 393216    // 3 MB in 8-byte slots
 let WNF_PER_THR: UInt64 = 65536      // 512 KB in 8-byte entries
-let SNF_PER_THR: UInt64 = 512        // 256 SNFFrame entries
+let SNF_PER_THR: UInt64 = 256        // 256 SNFFrame entries
 
 // Globals for parsing
 var HEAP: UnsafeMutablePointer<Term>!
@@ -440,8 +440,7 @@ func main() {
     print("")
     print("Threads\tTime(s)\t\tIterations\tMIPS")
     print("-------\t-------\t\t----------\t----")
-/*    for n in [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768] {*/
-    for n in [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192] {
+    for n in [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768] {
       let r = runGPU(device, shaderSource, bookSize, mainName, n)
       print("\(n)\t\(String(format: "%.6f", r.time))\t\(r.itrs)\t\t\(String(format: "%.2f", r.mips))")
     }
