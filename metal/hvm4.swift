@@ -17,8 +17,9 @@ let TAG_MASK: UInt64 = 0x7F, EXT_MASK: UInt64 = 0xFFFF, VAL_MASK: UInt64 = 0xFFF
 
 // Capacities
 let BOOK_CAP: Int = 1 << 24
-let HEAP_PER_THR: UInt64 = 1 << 21
-let STACK_PER_THR: UInt64 = 1 << 19
+let HEAP_PER_THR: UInt64 = 393216    // 3 MB in 8-byte slots
+let WNF_PER_THR: UInt64 = 65536      // 512 KB in 8-byte entries
+let SNF_PER_THR: UInt64 = 256        // 256 SNFFrame entries
 
 // Globals for parsing
 var HEAP: UnsafeMutablePointer<Term>!
@@ -285,22 +286,26 @@ func runGPU(_ device: MTLDevice, _ shaderSource: String, _ bookSize: UInt32, _ m
   let numWarps = (numThreads + simdWidth - 1) / simdWidth
   let warpSliceSize = Int(HEAP_PER_THR) * simdWidth
   let totalHeapSize = Int(bookSize) + numWarps * warpSliceSize
-  let totalStackSize = numThreads * Int(STACK_PER_THR)
+  let totalWnfSize = numThreads * Int(WNF_PER_THR)
+  let snfFrameSize = 24  // sizeof(SNFFrame): Term(8) + write_loc(4) + depth(4) + phase(1) + padding(7)
+  let totalSnfSize = numThreads * Int(SNF_PER_THR) * snfFrameSize
 
   let heapBuffer = device.makeBuffer(length: totalHeapSize * MemoryLayout<Term>.stride, options: .storageModeShared)!
   memcpy(heapBuffer.contents(), HEAP, Int(bookSize) * MemoryLayout<Term>.stride)
-  let stackBuffer = device.makeBuffer(length: totalStackSize * MemoryLayout<Term>.stride, options: .storageModeShared)!
+  let wnfBuffer = device.makeBuffer(length: totalWnfSize * MemoryLayout<Term>.stride, options: .storageModeShared)!
+  let snfBuffer = device.makeBuffer(length: totalSnfSize, options: .storageModeShared)!
   let bookBuffer = device.makeBuffer(bytes: BOOK, length: BOOK_CAP * MemoryLayout<UInt32>.stride, options: .storageModeShared)!
   let itrsBuffer = device.makeBuffer(length: numThreads * MemoryLayout<UInt64>.stride, options: .storageModeShared)!
   let outputsBuffer = device.makeBuffer(length: numThreads * MemoryLayout<Term>.stride, options: .storageModeShared)!
 
   var bookSizeVal = bookSize, mainRef = mainName, numThreadsVal = UInt32(numThreads)
-  var heapPerThrVal = HEAP_PER_THR, stackPerThrVal = STACK_PER_THR, simdWidthVal = UInt32(simdWidth)
+  var heapPerThrVal = HEAP_PER_THR, wnfPerThrVal = WNF_PER_THR, snfPerThrVal = SNF_PER_THR, simdWidthVal = UInt32(simdWidth)
   let bookSizeBuffer = device.makeBuffer(bytes: &bookSizeVal, length: 4, options: .storageModeShared)!
   let mainRefBuffer = device.makeBuffer(bytes: &mainRef, length: 4, options: .storageModeShared)!
   let numThreadsBuffer = device.makeBuffer(bytes: &numThreadsVal, length: 4, options: .storageModeShared)!
   let heapPerThrBuffer = device.makeBuffer(bytes: &heapPerThrVal, length: 8, options: .storageModeShared)!
-  let stackPerThrBuffer = device.makeBuffer(bytes: &stackPerThrVal, length: 8, options: .storageModeShared)!
+  let wnfPerThrBuffer = device.makeBuffer(bytes: &wnfPerThrVal, length: 8, options: .storageModeShared)!
+  let snfPerThrBuffer = device.makeBuffer(bytes: &snfPerThrVal, length: 8, options: .storageModeShared)!
   let simdWidthBuffer = device.makeBuffer(bytes: &simdWidthVal, length: 4, options: .storageModeShared)!
 
   let threadsPerGroup = min(numThreads, pipeline.maxTotalThreadsPerThreadgroup)
@@ -311,16 +316,18 @@ func runGPU(_ device: MTLDevice, _ shaderSource: String, _ bookSize: UInt32, _ m
     guard let cmdBuffer = queue.makeCommandBuffer(), let encoder = cmdBuffer.makeComputeCommandEncoder() else { exit(1) }
     encoder.setComputePipelineState(pipeline)
     encoder.setBuffer(heapBuffer, offset: 0, index: 0)
-    encoder.setBuffer(stackBuffer, offset: 0, index: 1)
-    encoder.setBuffer(bookBuffer, offset: 0, index: 2)
-    encoder.setBuffer(itrsBuffer, offset: 0, index: 3)
-    encoder.setBuffer(outputsBuffer, offset: 0, index: 4)
-    encoder.setBuffer(bookSizeBuffer, offset: 0, index: 5)
-    encoder.setBuffer(mainRefBuffer, offset: 0, index: 6)
-    encoder.setBuffer(numThreadsBuffer, offset: 0, index: 7)
-    encoder.setBuffer(heapPerThrBuffer, offset: 0, index: 8)
-    encoder.setBuffer(stackPerThrBuffer, offset: 0, index: 9)
-    encoder.setBuffer(simdWidthBuffer, offset: 0, index: 10)
+    encoder.setBuffer(wnfBuffer, offset: 0, index: 1)
+    encoder.setBuffer(snfBuffer, offset: 0, index: 2)
+    encoder.setBuffer(bookBuffer, offset: 0, index: 3)
+    encoder.setBuffer(itrsBuffer, offset: 0, index: 4)
+    encoder.setBuffer(outputsBuffer, offset: 0, index: 5)
+    encoder.setBuffer(bookSizeBuffer, offset: 0, index: 6)
+    encoder.setBuffer(mainRefBuffer, offset: 0, index: 7)
+    encoder.setBuffer(numThreadsBuffer, offset: 0, index: 8)
+    encoder.setBuffer(heapPerThrBuffer, offset: 0, index: 9)
+    encoder.setBuffer(wnfPerThrBuffer, offset: 0, index: 10)
+    encoder.setBuffer(snfPerThrBuffer, offset: 0, index: 11)
+    encoder.setBuffer(simdWidthBuffer, offset: 0, index: 12)
     encoder.dispatchThreads(MTLSize(width: numThreads, height: 1, depth: 1),
                             threadsPerThreadgroup: MTLSize(width: threadsPerGroup, height: 1, depth: 1))
     encoder.endEncoding(); cmdBuffer.commit(); cmdBuffer.waitUntilCompleted()
@@ -331,16 +338,18 @@ func runGPU(_ device: MTLDevice, _ shaderSource: String, _ bookSize: UInt32, _ m
   guard let cmdBuffer = queue.makeCommandBuffer(), let encoder = cmdBuffer.makeComputeCommandEncoder() else { exit(1) }
   encoder.setComputePipelineState(pipeline)
   encoder.setBuffer(heapBuffer, offset: 0, index: 0)
-  encoder.setBuffer(stackBuffer, offset: 0, index: 1)
-  encoder.setBuffer(bookBuffer, offset: 0, index: 2)
-  encoder.setBuffer(itrsBuffer, offset: 0, index: 3)
-  encoder.setBuffer(outputsBuffer, offset: 0, index: 4)
-  encoder.setBuffer(bookSizeBuffer, offset: 0, index: 5)
-  encoder.setBuffer(mainRefBuffer, offset: 0, index: 6)
-  encoder.setBuffer(numThreadsBuffer, offset: 0, index: 7)
-  encoder.setBuffer(heapPerThrBuffer, offset: 0, index: 8)
-  encoder.setBuffer(stackPerThrBuffer, offset: 0, index: 9)
-  encoder.setBuffer(simdWidthBuffer, offset: 0, index: 10)
+  encoder.setBuffer(wnfBuffer, offset: 0, index: 1)
+  encoder.setBuffer(snfBuffer, offset: 0, index: 2)
+  encoder.setBuffer(bookBuffer, offset: 0, index: 3)
+  encoder.setBuffer(itrsBuffer, offset: 0, index: 4)
+  encoder.setBuffer(outputsBuffer, offset: 0, index: 5)
+  encoder.setBuffer(bookSizeBuffer, offset: 0, index: 6)
+  encoder.setBuffer(mainRefBuffer, offset: 0, index: 7)
+  encoder.setBuffer(numThreadsBuffer, offset: 0, index: 8)
+  encoder.setBuffer(heapPerThrBuffer, offset: 0, index: 9)
+  encoder.setBuffer(wnfPerThrBuffer, offset: 0, index: 10)
+  encoder.setBuffer(snfPerThrBuffer, offset: 0, index: 11)
+  encoder.setBuffer(simdWidthBuffer, offset: 0, index: 12)
   encoder.dispatchThreads(MTLSize(width: numThreads, height: 1, depth: 1),
                           threadsPerThreadgroup: MTLSize(width: threadsPerGroup, height: 1, depth: 1))
   encoder.endEncoding()
@@ -383,8 +392,6 @@ func main() {
     @cnot = λx.x(@cfal,@ctru)
     @P24  = λf.
       ! F &A = f;
-      ! F &A = λk. F₀(F₁(k));
-      ! F &A = λk. F₀(F₁(k));
       ! F &A = λk. F₀(F₁(k));
       ! F &A = λk. F₀(F₁(k));
       ! F &A = λk. F₀(F₁(k));

@@ -337,7 +337,7 @@ inline Term alo_node(const thread Heap& heap, thread State& st, uint32_t ls_loc,
 }
 
 // WNF (Weak Normal Form)
-Term wnf(const thread Heap& heap, device Term* stack, device uint32_t* book, thread State& st, Term term) {
+Term wnf(const thread Heap& heap, device Term* wnf_stack, device uint32_t* book, thread State& st, Term term, thread uint32_t& max_wnf) {
   uint32_t s_pos = 0;
   Term next = term;
   bool reducing = true;
@@ -356,12 +356,14 @@ Term wnf(const thread Heap& heap, device Term* stack, device uint32_t* book, thr
       if (tg == CO0 || tg == CO1) {
         Term h = heap.get(vl);
         if (sub_of(h)) { next = clear_sub(h); continue; }
-        stack[s_pos++] = next;
+        wnf_stack[s_pos++] = next;
+        if (s_pos > max_wnf) max_wnf = s_pos;
         next = h;
         continue;
       }
       if (tg == APP) {
-        stack[s_pos++] = next;
+        wnf_stack[s_pos++] = next;
+        if (s_pos > max_wnf) max_wnf = s_pos;
         next = heap.get(vl);
         continue;
       }
@@ -402,7 +404,7 @@ Term wnf(const thread Heap& heap, device Term* stack, device uint32_t* book, thr
     // Unwinding phase
     if (s_pos == 0) return next;
 
-    Term frame = stack[--s_pos];
+    Term frame = wnf_stack[--s_pos];
     uint8_t ft = tag(frame);
     uint8_t wt = tag(next);
 
@@ -412,7 +414,7 @@ Term wnf(const thread Heap& heap, device Term* stack, device uint32_t* book, thr
       if (wt == NAM || wt == DRY) { next = app_stuck(heap, st, next, arg); continue; }
       if (wt == LAM) { next = app_lam(heap, st, next, arg); reducing = true; continue; }
       if (wt == SUP) { next = app_sup(heap, st, frame, next); reducing = true; continue; }
-      if (wt == MAT) { stack[s_pos++] = next; next = arg; reducing = true; continue; }
+      if (wt == MAT) { wnf_stack[s_pos++] = next; if (s_pos > max_wnf) max_wnf = s_pos; next = arg; reducing = true; continue; }
       next = App(heap, st, next, arg);
       continue;
     }
@@ -449,17 +451,17 @@ Term wnf(const thread Heap& heap, device Term* stack, device uint32_t* book, thr
 struct SNFFrame { Term term; uint32_t write_loc; uint32_t depth; uint8_t phase; };
 constant uint32_t SNF_ROOT = 0xFFFFFFFF;
 
-Term snf(const thread Heap& heap, device Term* stack, device uint32_t* book, thread State& st, Term term, uint32_t stack_size) {
-  device SNFFrame* snf_stack = (device SNFFrame*)(stack + stack_size / 2);
+Term snf(const thread Heap& heap, device Term* wnf_stack, device SNFFrame* snf_stack, device uint32_t* book, thread State& st, Term term, thread uint32_t& max_wnf, thread uint32_t& max_snf) {
   uint32_t snf_pos = 0;
   snf_stack[snf_pos++] = SNFFrame{term, SNF_ROOT, 0, 0};
+  if (snf_pos > max_snf) max_snf = snf_pos;
   Term result = 0;
   uint32_t sw = st.simd_width;
 
   while (snf_pos > 0) {
     SNFFrame frame = snf_stack[--snf_pos];
     if (frame.phase == 0) {
-      Term t = wnf(heap, stack, book, st, frame.term);
+      Term t = wnf(heap, wnf_stack, book, st, frame.term, max_wnf);
       uint32_t ari = arity_of(t);
       if (ari == 0) {
         if (frame.write_loc != SNF_ROOT) heap.set(frame.write_loc, t);
@@ -475,6 +477,7 @@ Term snf(const thread Heap& heap, device Term* stack, device uint32_t* book, thr
           for (int32_t i = int32_t(ari) - 1; i >= 0; i--)
             snf_stack[snf_pos++] = SNFFrame{heap.get(loc + uint32_t(i) * sw), loc + uint32_t(i) * sw, frame.depth, 0};
         }
+        if (snf_pos > max_snf) max_snf = snf_pos;
       }
     } else {
       if (frame.write_loc != SNF_ROOT) heap.set(frame.write_loc, frame.term);
@@ -487,16 +490,18 @@ Term snf(const thread Heap& heap, device Term* stack, device uint32_t* book, thr
 // GPU Kernel
 kernel void hvm_run(
   device Term*     global_heap   [[buffer(0)]],
-  device Term*     global_stack  [[buffer(1)]],
-  device uint32_t* book          [[buffer(2)]],
-  device uint64_t* itrs_out      [[buffer(3)]],
-  device Term*     outputs       [[buffer(4)]],
-  constant uint32_t& book_size   [[buffer(5)]],
-  constant uint32_t& main_ref    [[buffer(6)]],
-  constant uint32_t& num_threads [[buffer(7)]],
-  constant uint64_t& heap_per_thr  [[buffer(8)]],
-  constant uint64_t& stack_per_thr [[buffer(9)]],
-  constant uint32_t& simd_width    [[buffer(10)]],
+  device Term*     global_wnf    [[buffer(1)]],
+  device SNFFrame* global_snf    [[buffer(2)]],
+  device uint32_t* book          [[buffer(3)]],
+  device uint64_t* itrs_out      [[buffer(4)]],
+  device Term*     outputs       [[buffer(5)]],
+  constant uint32_t& book_size   [[buffer(6)]],
+  constant uint32_t& main_ref    [[buffer(7)]],
+  constant uint32_t& num_threads [[buffer(8)]],
+  constant uint64_t& heap_per_thr  [[buffer(9)]],
+  constant uint64_t& wnf_per_thr   [[buffer(10)]],
+  constant uint64_t& snf_per_thr   [[buffer(11)]],
+  constant uint32_t& simd_width    [[buffer(12)]],
   uint tid [[thread_position_in_grid]]
 ) {
   if (tid >= num_threads) return;
@@ -511,7 +516,8 @@ kernel void hvm_run(
   Heap heap;
   heap.base = global_heap;
 
-  device Term* stack = global_stack + uint64_t(tid) * stack_per_thr;
+  device Term* wnf_stack = global_wnf + uint64_t(tid) * wnf_per_thr;
+  device SNFFrame* snf_stack = global_snf + uint64_t(tid) * snf_per_thr;
 
   State st;
   st.alloc = 0;  // Logical allocation counter starts at 0
@@ -519,9 +525,13 @@ kernel void hvm_run(
   st.heap_base = heap_base;
   st.simd_width = simd_width;
 
+  uint32_t max_wnf = 0;
+  uint32_t max_snf = 0;
+
   Term main_term = new_term(0, REF, main_ref, 0);
-  Term result = snf(heap, stack, book, st, main_term, uint32_t(stack_per_thr));
+  Term result = snf(heap, wnf_stack, snf_stack, book, st, main_term, max_wnf, max_snf);
 
   itrs_out[tid] = st.itrs;
-  outputs[tid] = result;
+  // Pack stats: heap_alloc (20 bits), max_wnf (20 bits), max_snf (20 bits) - fits in 60 bits
+  outputs[tid] = uint64_t(st.alloc) | (uint64_t(max_wnf) << 20) | (uint64_t(max_snf) << 40);
 }
