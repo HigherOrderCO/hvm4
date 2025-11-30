@@ -84,14 +84,14 @@ instance Show Term where
 show_ctr :: Name -> [Term] -> String
 show_ctr k [Ctr n []] | k == _VAR_ = int_to_name n  -- #VAR{#name{}} -> name
 show_ctr k [f, x]     | k == _APP_ = show_app f x   -- #APP{f,x} -> f(x)
-show_ctr k xs = "#" ++ int_to_name k ++ "{" ++ intercalate "," (map show xs) ++ "}"
+show_ctr k xs                      = "#" ++ int_to_name k ++ "{" ++ intercalate "," (map show xs) ++ "}"
 
 show_app :: Term -> Term -> String
 show_app f x = case f of
-  App _ _                       -> init (show f) ++ "," ++ show x ++ ")"
-  Ctr k [_, _] | k == _APP_   -> init (show f) ++ "," ++ show x ++ ")"
-  Lam _ _                       -> "(" ++ show f ++ ")(" ++ show x ++ ")"
-  _                             -> show f ++ "(" ++ show x ++ ")"
+  App _ _                   -> init (show f) ++ "," ++ show x ++ ")"
+  Ctr k [_, _] | k == _APP_ -> init (show f) ++ "," ++ show x ++ ")"
+  Lam _ _                   -> "(" ++ show f ++ ")(" ++ show x ++ ")"
+  _                         -> show f ++ "(" ++ show x ++ ")"
 
 instance Show Book where
   show (Book m) = unlines [ "@" ++ int_to_name k ++ " = " ++ show ct | (k, ct) <- M.toList m ]
