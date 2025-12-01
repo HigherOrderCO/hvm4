@@ -1,3 +1,5 @@
 .stuff/
 *.o
 *.hi
+clang/main
+haskell/main
