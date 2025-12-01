@@ -25,6 +25,9 @@ fn Term parse_term_lam(PState *s, u32 depth) {
         HEAP[loc + 1] = term_new_era();
         *tip = term_new(0, MAT, nam, loc);
         tip = &HEAP[loc + 1];
+      } else if (parse_peek(s) == '}') {
+        parse_consume(s, "}");
+        return mat;
       } else {
         *tip = parse_term(s, depth);
         parse_consume(s, "}");
