@@ -1,12 +1,16 @@
 fn u32 term_arity(Term t) {
   switch (term_tag(t)) {
+    case NAM: {
+      return 0;
+    }
     case LAM: {
       return 1;
     }
     case APP:
     case SUP:
     case DUP:
-    case MAT: {
+    case MAT:
+    case DRY: {
       return 2;
     }
     case NUM: {

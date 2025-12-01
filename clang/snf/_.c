@@ -7,10 +7,12 @@ fn Term snf(Term term, u32 depth) {
   u64 loc = term_val(term);
   if (term_tag(term) == LAM) {
     Term body = HEAP[loc];
-    // #VAR{#depth{}} for stuck variable
-    Term name_ctr = term_new_ctr(depth + 1, 0, NULL);
-    heap_subst_var(loc, term_new_ctr(_VAR_, 1, (Term[]){name_ctr}));
+    // ^(depth+1) for stuck variable
+    heap_subst_var(loc, term_new_nam(depth + 1));
     HEAP[loc] = snf(body, depth + 1);
+  } else if (term_tag(term) == DRY) {
+    HEAP[loc + 0] = snf(HEAP[loc + 0], depth);
+    HEAP[loc + 1] = snf(HEAP[loc + 1], depth);
   } else {
     for (u32 i = 0; i < ari; i++) {
       HEAP[loc + i] = snf(HEAP[loc + i], depth);

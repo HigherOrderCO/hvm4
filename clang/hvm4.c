@@ -28,41 +28,37 @@ typedef struct {
 // Tags
 // ====
 
-#define REF  0
-#define ALO  1
-#define ERA  2
-#define CO0  3
-#define CO1  4
-#define VAR  5
-#define LAM  6
-#define APP  7
-#define SUP  8
-#define DUP  9
-#define MAT 10
-#define C00 11
-#define C01 12
-#define C02 13
-#define C03 14
-#define C04 15
-#define C05 16
-#define C06 17
-#define C07 18
-#define C08 19
-#define C09 20
-#define C10 21
-#define C11 22
-#define C12 23
-#define C13 24
-#define C14 25
-#define C15 26
-#define C16 27
-#define NUM 28
-
-// Special constructor names for stuck terms
-// =========================================
-
-#define _VAR_ 198380  // name_to_int("VAR")
-#define _APP_ 113322  // name_to_int("APP")
+#define NAM  0
+#define DRY  1
+#define REF  2
+#define ALO  3
+#define ERA  4
+#define CO0  5
+#define CO1  6
+#define VAR  7
+#define LAM  8
+#define APP  9
+#define SUP 10
+#define DUP 11
+#define MAT 12
+#define C00 13
+#define C01 14
+#define C02 15
+#define C03 16
+#define C04 17
+#define C05 18
+#define C06 19
+#define C07 20
+#define C08 21
+#define C09 22
+#define C10 23
+#define C11 24
+#define C12 25
+#define C13 26
+#define C14 27
+#define C15 28
+#define C16 29
+#define NUM 30
 
 // Bit Layout
 // ==========
@@ -159,6 +155,8 @@ static u32    PARSE_BINDS_LEN = 0;
 // =================
 
 #include "term/new/_.c"
+#include "term/new/nam.c"
+#include "term/new/dry.c"
 #include "term/new/var.c"
 #include "term/new/ref.c"
 #include "term/new/era.c"
@@ -234,16 +232,22 @@ static u32    PARSE_BINDS_LEN = 0;
 // ===
 
 #include "wnf/app_era.c"
+#include "wnf/app_nam.c"
+#include "wnf/app_dry.c"
 #include "wnf/app_ctr.c"
 #include "wnf/app_lam.c"
 #include "wnf/app_sup.c"
 #include "wnf/app_mat_sup.c"
 #include "wnf/app_mat_ctr.c"
+#include "wnf/dup_nam.c"
+#include "wnf/dup_dry.c"
 #include "wnf/dup_lam.c"
 #include "wnf/dup_sup.c"
 #include "wnf/dup_node.c"
 #include "wnf/alo_var.c"
 #include "wnf/alo_cop.c"
+#include "wnf/alo_nam.c"
+#include "wnf/alo_dry.c"
 #include "wnf/alo_lam.c"
 #include "wnf/alo_dup.c"
 #include "wnf/alo_node.c"

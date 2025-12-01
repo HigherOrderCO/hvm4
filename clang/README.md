@@ -75,10 +75,8 @@ respective interactions without requiring sub-WNF results first.
 
 These nodes are internal and not parseable:
 - ALO: lazy alloc
-
-Stuck terms use special CTR names:
-- #VAR{#name{}}: stuck variable (name encoded as 0-arity CTR)
-- #APP{f,x}: stuck application
+- NAM: stuck variable (^name)
+- DRY: stuck application (^(f x))
 
 ## Collapse Function
 

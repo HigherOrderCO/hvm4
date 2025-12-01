@@ -1,10 +1,11 @@
 fn void print_term_go(FILE *f, Term term, u32 depth);
 
+// Prints APP and DRY chains as f(x,y,z)
 fn void print_app(FILE *f, Term term, u32 depth) {
   Term spine[256];
   u32  len  = 0;
   Term curr = term;
-  while ((term_tag(curr) == APP || (term_tag(curr) == C02 && term_ext(curr) == _APP_)) && len < 256) {
+  while ((term_tag(curr) == APP || term_tag(curr) == DRY) && len < 256) {
     u32 loc = term_val(curr);
     spine[len++] = HEAP[loc + 1];
     curr = HEAP[loc];
@@ -28,6 +29,16 @@ fn void print_app(FILE *f, Term term, u32 depth) {
 
 fn void print_term_go(FILE *f, Term term, u32 depth) {
   switch (term_tag(term)) {
+    case NAM: {
+      // Print stuck variable as just the name
+      print_name(f, term_ext(term));
+      break;
+    }
+    case DRY: {
+      // Print stuck application as f(x,y)
+      print_app(f, term, depth);
+      break;
+    }
     case VAR: {
       print_name(f, term_val(term));
       break;
@@ -103,16 +114,6 @@ fn void print_term_go(FILE *f, Term term, u32 depth) {
       u32 ari = term_tag(term) - C00;
       u32 loc = term_val(term);
       u32 nam = term_ext(term);
-      // #VAR{#name{}} -> name
-      if (nam == _VAR_ && ari == 1 && term_tag(HEAP[loc]) == C00) {
-        print_name(f, term_ext(HEAP[loc]));
-        break;
-      }
-      // #APP{f,x} -> f(x)
-      if (nam == _APP_ && ari == 2) {
-        print_app(f, term, depth);
-        break;
-      }
       fputc('#', f);
       print_name(f, nam);
       fputc('{', f);

@@ -78,6 +78,14 @@ fn Term wnf(Term term) {
             next = wnf_alo_cop(ls_loc, term_val(book), term_ext(book), term_tag(book) == CO0 ? 0 : 1);
             goto enter;
           }
+          case NAM: {
+            next = wnf_alo_nam(term_ext(book));
+            goto enter;
+          }
+          case DRY: {
+            next = wnf_alo_dry(ls_loc, term_val(book));
+            goto enter;
+          }
           case LAM: {
             next = wnf_alo_lam(ls_loc, term_val(book));
             goto enter;
@@ -105,6 +113,8 @@ fn Term wnf(Term term) {
         }
       }
 
+      case NAM:
+      case DRY:
       case ERA:
       case SUP:
       case LAM:
@@ -140,6 +150,14 @@ fn Term wnf(Term term) {
           switch (term_tag(whnf)) {
             case ERA: {
               whnf = wnf_app_era();
+              continue;
+            }
+            case NAM: {
+              whnf = wnf_app_nam(whnf, arg);
+              continue;
+            }
+            case DRY: {
+              whnf = wnf_app_dry(whnf, arg);
               continue;
             }
             case LAM: {
@@ -199,6 +217,15 @@ fn Term wnf(Term term) {
           u32 lab  = term_ext(frame);
 
           switch (term_tag(whnf)) {
+            case NAM: {
+              whnf = wnf_dup_nam(lab, loc, side, whnf);
+              continue;
+            }
+            case DRY: {
+              whnf = wnf_dup_dry(lab, loc, side, whnf);
+              next = whnf;
+              goto enter;
+            }
             case LAM: {
               whnf = wnf_dup_lam(lab, loc, side, whnf);
               next = whnf;

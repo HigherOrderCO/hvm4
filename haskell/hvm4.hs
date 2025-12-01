@@ -34,6 +34,8 @@ data Term
   = Var Name
   | Cop Int Name
   | Ref Name
+  | Nam Name
+  | Dry Term Term
   | Era
   | Sup Lab Term Term
   | Dup Name Lab Term Term
@@ -62,39 +64,29 @@ data Env = Env
 -- Showing
 -- =======
 
--- Constants for VAR and APP constructor names
-_VAR_ :: Name
-_VAR_ = name_to_int "VAR"
-
-_APP_ :: Name
-_APP_ = name_to_int "APP"
-
 instance Show Term where
   show (Var k)       = int_to_name k
   show (Cop s k)     = int_to_name k ++ (if s == 0 then "₀" else "₁")
   show (Ref k)       = "@" ++ int_to_name k
+  show (Nam k)       = int_to_name k  -- stuck variable prints as just the name
+  show (Dry f x)     = show_app f x   -- stuck application prints like regular app
   show Era           = "&{}"
   show (Sup l a b)   = "&" ++ int_to_name l ++ "{" ++ show a ++ "," ++ show b ++ "}"
   show (Dup k l v t) = "!" ++ int_to_name k ++ "&" ++ int_to_name l ++ "=" ++ show v ++ ";" ++ show t
   show (Lam k f)     = "λ" ++ int_to_name k ++ "." ++ show f
   show (App f x)     = show_app f x
-  show (Ctr k xs)    = show_ctr k xs
+  show (Ctr k xs)    = "#" ++ int_to_name k ++ "{" ++ intercalate "," (map show xs) ++ "}"
   show (Mat k h m)   = "λ{#" ++ int_to_name k ++ ":" ++ show h ++ ";" ++ show m ++ "}"
   show (Alo s t)     = "@{" ++ intercalate "," (map int_to_name s) ++ "}" ++ show t
   show (Num n)       = show n
 
--- Special pretty printing for VAR and APP constructors
-show_ctr :: Name -> [Term] -> String
-show_ctr k [Ctr n []] | k == _VAR_ = int_to_name n  -- #VAR{#name{}} -> name
-show_ctr k [f, x]     | k == _APP_ = show_app f x   -- #APP{f,x} -> f(x)
-show_ctr k xs                      = "#" ++ int_to_name k ++ "{" ++ intercalate "," (map show xs) ++ "}"
-
+-- Prints APP and DRY chains as f(x,y,z)
 show_app :: Term -> Term -> String
 show_app f x = case f of
-  App _ _                   -> init (show f) ++ "," ++ show x ++ ")"
-  Ctr k [_, _] | k == _APP_ -> init (show f) ++ "," ++ show x ++ ")"
-  Lam _ _                   -> "(" ++ show f ++ ")(" ++ show x ++ ")"
-  _                         -> show f ++ "(" ++ show x ++ ")"
+  App _ _   -> init (show f) ++ "," ++ show x ++ ")"
+  Dry _ _   -> init (show f) ++ "," ++ show x ++ ")"
+  Lam _ _   -> "(" ++ show f ++ ")(" ++ show x ++ ")"
+  _         -> show f ++ "(" ++ show x ++ ")"
 
 instance Show Book where
   show (Book m) = unlines [ "@" ++ int_to_name k ++ " = " ++ show ct | (k, ct) <- M.toList m ]
@@ -519,6 +511,8 @@ bruijn t = go IM.empty 0 t where
     Var k       -> Var   (d - 1 - env IM.! k)
     Cop s k     -> Cop s (d - 1 - env IM.! k)
     Ref k       -> Ref k
+    Nam k       -> Nam k
+    Dry f x     -> Dry (go env d f) (go env d x)
     Era         -> Era
     Sup l a b   -> Sup l (go env d a) (go env d b)
     Dup k l v b -> Dup k l (go env d v) (go (IM.insert k d env) (d + 1) b)
@@ -575,6 +569,8 @@ wnf e term = do
         Just (l, v) -> do
           v <- wnf e v
           case v of
+            Nam{} -> dup_nam s e k l v
+            Dry{} -> dup_dry s e k l v
             Era   -> dup_era s e k l v
             Sup{} -> dup_sup s e k l v
             Lam{} -> dup_lam s e k l v
@@ -594,6 +590,8 @@ wnf e term = do
     App f x -> do
       f <- wnf e f
       case f of
+        Nam{} -> app_nam e f x
+        Dry{} -> app_dry e f x
         Era   -> app_era e f x
         Sup{} -> app_sup e f x
         Lam{} -> app_lam e f x
@@ -611,6 +609,8 @@ wnf e term = do
       Var k       -> wnf e $ Var (s !! k)
       Cop c k     -> wnf e $ Cop c (s !! k)
       Ref k       -> wnf e $ Ref k
+      Nam k       -> wnf e $ Nam k
+      Dry f x     -> wnf e $ Dry (Alo s f) (Alo s x)
       Era         -> wnf e $ Era
       Sup l a b   -> wnf e $ Sup l (Alo s a) (Alo s b)
       Dup k l v t -> do { x <- fresh e ; wnf e $ Dup x l (Alo s v) (Alo (x:s) t) }
@@ -649,6 +649,26 @@ dup_era i e k _ Era = do
   inc_itrs e
   subst e k Era
   wnf e Era
+
+-- ! X &L = ^n -> X₀ ← ^n, X₁ ← ^n
+dup_nam :: WnfDup
+dup_nam i e k l nam@(Nam _) = do
+  inc_itrs e
+  subst e k nam
+  return nam
+
+-- ! X &L = ^(f x) -> ! F &L = f; ! A &L = x; X₀ ← ^(F₀ A₀), X₁ ← ^(F₁ A₁)
+dup_dry :: WnfDup
+dup_dry i e k l (Dry f x) = do
+  inc_itrs e
+  (f0, f1) <- clone e l f
+  (x0, x1) <- clone e l x
+  if i == 0 then do
+    subst e k (Dry f1 x1)
+    wnf e (Dry f0 x0)
+  else do
+    subst e k (Dry f0 x0)
+    wnf e (Dry f1 x1)
 
 dup_sup :: WnfDup
 dup_sup i e k l (Sup vl va vb)
@@ -719,9 +739,17 @@ app_era e Era v = do
   inc_itrs e
   wnf e Era
 
--- (#Foo{...} x) -> #APP{#Foo{...}, x}
+-- (^n a) -> ^(^n a)
+app_nam :: WnfApp
+app_nam e nam v = return $ Dry nam v
+
+-- (^(f x) a) -> ^(^(f x) a)
+app_dry :: WnfApp
+app_dry e dry v = return $ Dry dry v
+
+-- (#Foo{...} x) -> ^(#Foo{...} x)
 app_ctr :: WnfApp
-app_ctr e ctr v = return $ Ctr _APP_ [ctr, v]
+app_ctr e ctr v = return $ Dry ctr v
 
 app_lam :: WnfApp
 app_lam e (Lam fx ff) v = do
@@ -781,6 +809,14 @@ snf e d x = unsafeInterleaveIO $ do
     Ref k -> do
       return $ Ref k
 
+    Nam k -> do
+      return $ Nam k
+
+    Dry f x -> do
+      f' <- snf e d f
+      x' <- snf e d x
+      return $ Dry f' x'
+
     Era -> do
       return $ Era
 
@@ -793,7 +829,7 @@ snf e d x = unsafeInterleaveIO $ do
       error "TODO"
 
     Lam k f -> do
-      subst e k (Ctr _VAR_ [Ctr d []])
+      subst e k (Nam d)
       f' <- snf e (d + 1) f
       return $ Lam d f'
 
