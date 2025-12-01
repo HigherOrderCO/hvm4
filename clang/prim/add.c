@@ -1,7 +1,6 @@
-// Forward declare wnf
-fn Term wnf(Term term);
-
-// @@add(a,b) - Addition of two NUMs
+// @@add(a, b)
+// ----------- prim-add
+// a + b
 fn Term prim_add(Term a, Term b) {
   a = wnf(a);
   b = wnf(b);
