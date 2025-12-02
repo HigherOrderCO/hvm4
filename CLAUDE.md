@@ -62,9 +62,9 @@ This is strictly enforced. Read `clang/STYLE.md` before writing any code.
 
 64-bit term pointer: `SUB(1) | TAG(7) | EXT(24) | VAL(32)`
 
-- SUB: marks substitutions
+- SUB: is this heap entry a substitution?
 - TAG: term type (APP, LAM, SUP, etc.)
-- EXT: label/name (24-bit base64-encoded)
+- EXT: label/name (24-bit, base64-encoded)
 - VAL: heap address or immediate value
 
 ### Evaluation
