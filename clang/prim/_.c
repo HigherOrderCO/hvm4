@@ -19,6 +19,8 @@ fn Term wnf(Term term);
 #define PRIM_LE  773
 #define PRIM_GT  468
 #define PRIM_GE  453
+#define PRIM_DUP 17744
+#define PRIM_SUP 79184
 
 // Primitive implementations
 #include "add.c"
@@ -32,6 +34,8 @@ fn Term wnf(Term term);
 #include "lsh.c"
 #include "rsh.c"
 #include "not.c"
+#include "dup.c"
+#include "sup.c"
 #include "eq.c"
 #include "ne.c"
 #include "lt.c"
@@ -62,6 +66,9 @@ fn Term prim_call(u32 nam, u32 ari, u32 loc) {
     case PRIM_LE:  return prim_le(HEAP[loc + 0], HEAP[loc + 1]);
     case PRIM_GT:  return prim_gt(HEAP[loc + 0], HEAP[loc + 1]);
     case PRIM_GE:  return prim_ge(HEAP[loc + 0], HEAP[loc + 1]);
+    // Dynamic label
+    case PRIM_DUP: return prim_dup(HEAP[loc + 0], HEAP[loc + 1], HEAP[loc + 2]);
+    case PRIM_SUP: return prim_sup(HEAP[loc + 0], HEAP[loc + 1], HEAP[loc + 2]);
     default: {
       fprintf(stderr, "unknown primitive: %u\n", nam);
       exit(1);

@@ -1,0 +1,2 @@
+@main = λx. @dup(4, x, λa.λb.a(b))
+//λa.a(a)

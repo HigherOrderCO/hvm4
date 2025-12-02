@@ -105,6 +105,10 @@ static const char *PRELUDE =
   "@le  = λ{λx.λ{λy.@@le(x,y)}}\n"
   "@gt  = λ{λx.λ{λy.@@gt(x,y)}}\n"
   "@ge  = λ{λx.λ{λy.@@ge(x,y)}}\n"
+  "@dup = λ{λl.λ{λv.λ{λf.@@dup(l,v,f)}}}\n"
+  "@sup = λ{λl.λ{λa.λ{λb.@@sup(l,a,b)}}}\n"
+  "@sp0 = λ{λx.@@and(@@add(@@mul(x,16293),1),65535)}"
+  "@sp1 = λ{λx.@@and(@@add(@@mul(x,32677),3),65535)}"
 ;
 
 // Main
