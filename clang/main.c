@@ -87,29 +87,7 @@ fn CliOpts parse_opts(int argc, char **argv) {
 // Prelude
 // =======
 
-static const char *PRELUDE =
-  "@add = λ{λx.λ{λy.@@add(x,y)}}\n"
-  "@sub = λ{λx.λ{λy.@@sub(x,y)}}\n"
-  "@mul = λ{λx.λ{λy.@@mul(x,y)}}\n"
-  "@div = λ{λx.λ{λy.@@div(x,y)}}\n"
-  "@mod = λ{λx.λ{λy.@@mod(x,y)}}\n"
-  "@and = λ{λx.λ{λy.@@and(x,y)}}\n"
-  "@or  = λ{λx.λ{λy.@@or(x,y)}}\n"
-  "@xor = λ{λx.λ{λy.@@xor(x,y)}}\n"
-  "@lsh = λ{λx.λ{λy.@@lsh(x,y)}}\n"
-  "@rsh = λ{λx.λ{λy.@@rsh(x,y)}}\n"
-  "@not = λ{λx.@@not(x)}\n"
-  "@eq  = λ{λx.λ{λy.@@eq(x,y)}}\n"
-  "@ne  = λ{λx.λ{λy.@@ne(x,y)}}\n"
-  "@lt  = λ{λx.λ{λy.@@lt(x,y)}}\n"
-  "@le  = λ{λx.λ{λy.@@le(x,y)}}\n"
-  "@gt  = λ{λx.λ{λy.@@gt(x,y)}}\n"
-  "@ge  = λ{λx.λ{λy.@@ge(x,y)}}\n"
-  "@dup = λ{λl.λ{λv.λ{λf.@@dup(l,v,f)}}}\n"
-  "@sup = λ{λl.λ{λa.λ{λb.@@sup(l,a,b)}}}\n"
-  "@sp0 = λ{λx.@@and(@@add(@@mul(x,16293),1),65535)}"
-  "@sp1 = λ{λx.@@and(@@add(@@mul(x,32677),3),65535)}"
-;
+#include "prelude/_.c"
 
 // Main
 // ====
