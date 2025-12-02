@@ -93,10 +93,10 @@ fn Term wnf(Term term) {
           case APP:
           case SUP:
           case MAT:
-          case SWI:
-          case USE:
-          case C00 ... C16:
-          case P00 ... P16: {
+//          case SWI:
+//          case USE:
+          case C00 ... C16: {
+//          case P00 ... P16: {
             u32 ari = (term_tag(book) >= P00) ? (term_tag(book) - P00) : term_arity(book);
             next = wnf_alo_node(ls_loc, term_val(book), term_tag(book), term_ext(book), ari);
             goto enter;
@@ -117,15 +117,15 @@ fn Term wnf(Term term) {
         }
       }
 
-      case P00 ... P16: {
-        // Call the primitive directly (it handles strict evaluation internally)
-        u32  nam = term_ext(next);
-        u32  ari = term_tag(next) - P00;
-        u32  loc = term_val(next);
-        ITRS++;
-        next = prim_call(nam, ari, loc);
-        goto enter;
-      }
+//      case P00 ... P16: {
+//        // Call the primitive directly (it handles strict evaluation internally)
+//        u32  nam = term_ext(next);
+//        u32  ari = term_tag(next) - P00;
+//        u32  loc = term_val(next);
+//        ITRS++;
+//        next = prim_call(nam, ari, loc);
+//        goto enter;
+//      }
 
       case NAM:
       case DRY:
@@ -134,8 +134,8 @@ fn Term wnf(Term term) {
       case LAM:
       case NUM:
       case MAT:
-      case SWI:
-      case USE:
+//      case SWI:
+//      case USE:
       case C00 ... C16: {
         whnf = next;
         goto apply;
@@ -155,7 +155,7 @@ fn Term wnf(Term term) {
       printf("\n");
     }
 
-    while (S_POS > base) {
+    while (S_POS > 0) {
       Term frame = STACK[--S_POS];
 
       switch (term_tag(frame)) {
@@ -191,16 +191,16 @@ fn Term wnf(Term term) {
               next = arg;
               goto enter;
             }
-            case SWI: {
-              STACK[S_POS++] = whnf;
-              next = arg;
-              goto enter;
-            }
-            case USE: {
-              STACK[S_POS++] = whnf;
-              next = arg;
-              goto enter;
-            }
+//            case SWI: {
+//              STACK[S_POS++] = whnf;
+//              next = arg;
+//              goto enter;
+//            }
+//            case USE: {
+//              STACK[S_POS++] = whnf;
+//              next = arg;
+//              goto enter;
+//            }
             default: {
               whnf = term_new_app(whnf, arg);
               continue;
@@ -232,78 +232,78 @@ fn Term wnf(Term term) {
           }
         }
 
-        case SWI: {
-          // λ{num: f; g} applied to whnf
-          // If whnf == num, return f; else return (g whnf)
-          u32  num = term_ext(frame);
-          u32  loc = term_val(frame);
-          Term f   = HEAP[loc + 0];
-          Term g   = HEAP[loc + 1];
-          switch (term_tag(whnf)) {
-            case ERA: {
-              whnf = wnf_app_era();
-              continue;
-            }
-            case NUM: {
-              ITRS++;
-              if (term_val(whnf) == num) {
-                next = f;
-              } else {
-                next = term_new_app(g, whnf);
-              }
-              goto enter;
-            }
-            case SUP: {
-              // Clone SWI and distribute over SUP
-              u32  lab     = term_ext(whnf);
-              u32  sup_loc = term_val(whnf);
-              Copy F       = term_clone(lab, f);
-              Copy G       = term_clone(lab, g);
-              Term swi0    = term_new_swi(num, F.k0, G.k0);
-              Term swi1    = term_new_swi(num, F.k1, G.k1);
-              Term app0    = term_new_app(swi0, HEAP[sup_loc + 0]);
-              Term app1    = term_new_app(swi1, HEAP[sup_loc + 1]);
-              ITRS++;
-              next = term_new_sup(lab, app0, app1);
-              goto enter;
-            }
-            default: {
-              whnf = term_new_app(frame, whnf);
-              continue;
-            }
-          }
-        }
-
-        case USE: {
-          // λ{f} applied to whnf - just apply f to whnf
-          u32  loc = term_val(frame);
-          Term f   = HEAP[loc];
-          switch (term_tag(whnf)) {
-            case ERA: {
-              whnf = wnf_app_era();
-              continue;
-            }
-            case SUP: {
-              // Clone f and distribute over SUP
-              u32  lab     = term_ext(whnf);
-              u32  sup_loc = term_val(whnf);
-              Copy F       = term_clone(lab, f);
-              Term use0    = term_new_use(F.k0);
-              Term use1    = term_new_use(F.k1);
-              Term app0    = term_new_app(use0, HEAP[sup_loc + 0]);
-              Term app1    = term_new_app(use1, HEAP[sup_loc + 1]);
-              ITRS++;
-              next = term_new_sup(lab, app0, app1);
-              goto enter;
-            }
-            default: {
-              // Apply f to whnf
-              ITRS++;
-              next = term_new_app(f, whnf);
-              goto enter;
-            }
-          }
-        }
+//        case SWI: {
+//          // λ{num: f; g} applied to whnf
+//          // If whnf == num, return f; else return (g whnf)
+//          u32  num = term_ext(frame);
+//          u32  loc = term_val(frame);
+//          Term f   = HEAP[loc + 0];
+//          Term g   = HEAP[loc + 1];
+//          switch (term_tag(whnf)) {
+//            case ERA: {
+//              whnf = wnf_app_era();
+//              continue;
+//            }
+//            case NUM: {
+//              ITRS++;
+//              if (term_val(whnf) == num) {
+//                next = f;
+//              } else {
+//                next = term_new_app(g, whnf);
+//              }
+//              goto enter;
+//            }
+//            case SUP: {
+//              // Clone SWI and distribute over SUP
+//              u32  lab     = term_ext(whnf);
+//              u32  sup_loc = term_val(whnf);
+//              Copy F       = term_clone(lab, f);
+//              Copy G       = term_clone(lab, g);
+//              Term swi0    = term_new_swi(num, F.k0, G.k0);
+//              Term swi1    = term_new_swi(num, F.k1, G.k1);
+//              Term app0    = term_new_app(swi0, HEAP[sup_loc + 0]);
+//              Term app1    = term_new_app(swi1, HEAP[sup_loc + 1]);
+//              ITRS++;
+//              next = term_new_sup(lab, app0, app1);
+//              goto enter;
+//            }
+//            default: {
+//              whnf = term_new_app(frame, whnf);
+//              continue;
+//            }
+//          }
+//        }
+//
+//        case USE: {
+//          // λ{f} applied to whnf - just apply f to whnf
+//          u32  loc = term_val(frame);
+//          Term f   = HEAP[loc];
+//          switch (term_tag(whnf)) {
+//            case ERA: {
+//              whnf = wnf_app_era();
+//              continue;
+//            }
+//            case SUP: {
+//              // Clone f and distribute over SUP
+//              u32  lab     = term_ext(whnf);
+//              u32  sup_loc = term_val(whnf);
+//              Copy F       = term_clone(lab, f);
+//              Term use0    = term_new_use(F.k0);
+//              Term use1    = term_new_use(F.k1);
+//              Term app0    = term_new_app(use0, HEAP[sup_loc + 0]);
+//              Term app1    = term_new_app(use1, HEAP[sup_loc + 1]);
+//              ITRS++;
+//              next = term_new_sup(lab, app0, app1);
+//              goto enter;
+//            }
+//            default: {
+//              // Apply f to whnf
+//              ITRS++;
+//              next = term_new_app(f, whnf);
+//              goto enter;
+//            }
+//          }
+//        }
 
         case CO0:
         case CO1: {
@@ -337,8 +337,8 @@ fn Term wnf(Term term) {
               continue;
             }
             case MAT:
-            case SWI:
-            case USE:
+//            case SWI:
+//            case USE:
             case C00 ... C16: {
               whnf = wnf_dup_node(lab, loc, side, whnf);
               next = whnf;

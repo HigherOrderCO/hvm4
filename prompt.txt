@@ -1,0 +1,27 @@
+seems like we had a serious performance regression on commits:
+
+12b022d9271a4a0fc4d6b63e8e336b7ca3225139
+eb5727d927d226c7426df37a31503db196e3a3ec
+
+on the commit before these two (which should've been one):
+
+744b69984da16becbf4cce148dc9ba92772a6b40
+
+the bench/cnots.hvm4 file performed at ~180m interactions per second. on the
+current main commit, though, it performs at ~140m interactions per second. that
+is far from ideal. after investigation, we concluded the culprit is the changes
+made to wnf on these two commits, which then included new cases like SWI, USE,
+etc.; that, seemingly, changes the machine generated code in such way that
+causes this regression.
+
+your goal is to understand why exactly this is happening, and fix, so that we
+can recover the old performance, while still keeping the new features. you can
+inspect the generated assembly, although we do not recommend to, since all fns
+are inlined (see the 'fn' #define) and the function is massive (7k+ lines). more
+reasonable options include just trying sensible things. for example, removing
+inlining, replacing switches by if chains, changing tag orders, and anything
+else you can think of based on your system programming knowledge.
+
+you can run the benchmark with:
+./clang/main bench/cnots.hvm4 -s
+
