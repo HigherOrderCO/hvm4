@@ -32,7 +32,8 @@ fn Term parse_term_dup(PState *s, u32 depth) {
     // Check for affinity violation on non-cloned variables
     if (!cloned && uses > 1) {
       fprintf(stderr, "\033[1;31mPARSE_ERROR\033[0m\n");
-      fprintf(stderr, "- variable used %d times (not cloned)\n", uses);
+      fprintf(stderr, "- variable '"); print_name(stderr, nam);
+      fprintf(stderr, "' used %d times (not cloned)\n", uses);
       fprintf(stderr, "- hint: use ! & to allow multiple uses\n");
       exit(1);
     }
@@ -102,7 +103,8 @@ fn Term parse_term_dup(PState *s, u32 depth) {
   // Check for affinity violation on dup bindings (they can only be used via CO0/CO1)
   if (uses > 2) {
     fprintf(stderr, "\033[1;31mPARSE_ERROR\033[0m\n");
-    fprintf(stderr, "- dup variable used %d times (max 2 with ₀ and ₁)\n", uses);
+    fprintf(stderr, "- dup variable '"); print_name(stderr, nam);
+    fprintf(stderr, "' used %d times (max 2 with ₀ and ₁)\n", uses);
     exit(1);
   }
   HEAP[loc + 1] = body;
