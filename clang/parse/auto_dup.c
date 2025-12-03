@@ -139,7 +139,7 @@ fn Term parse_auto_dup(Term body, u32 idx, u32 uses) {
     if (i == 0) {
       v = term_new(0, VAR, 0, idx);
     } else {
-      v = term_new(0, CO1, lab + i - 1, 1);
+      v = term_new(0, CO1, lab + i - 1, 0);
     }
     u64 loc = heap_alloc(2);
     HEAP[loc + 0] = v;

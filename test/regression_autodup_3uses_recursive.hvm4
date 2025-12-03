@@ -1,0 +1,20 @@
+// Regression test: auto-dup with 3 uses in recursive context
+// Bug: CO1 in dup chain had wrong De Bruijn index (1 instead of 0)
+// This caused crashes or wrong results with 3+ uses of auto-dup var
+
+@app = λ{
+  []: [];
+  <>: λx. λxs. λ&f. f(x) <> @app(xs, f);
+}
+
+@lam = λ&L. λ{
+  #All: λ{
+    #Boo: λB. λS. λR.
+      λ&x. @lam(L, B(x), S(x), @app(R,x))
+    λA. λB. λS. λR. &{}
+  }
+  λT. λS. λR. S
+}
+
+@main = @lam(0, #All{#Boo, λx. #Boo}, ^F, [])
+//λa.F(a)
