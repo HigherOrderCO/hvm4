@@ -15,6 +15,8 @@ Term ::=
 | Dup ::= "!" Name "&" Name "=" Term ";" Term
 | Ctr ::= "#" Name "{" [Term] "}"
 | Mat ::= "λ" "{" "#" Name ":" Term ";" Term "}"
+| Swi ::= "λ" "{" Num ":" Term ";" Term "}"
+| Use ::= "λ" "{" Term "}"
 | Lam ::= "λ" Name "." Term
 | App ::= "(" Term " " Term ")"
 | Alo ::= "@" "{" [Name] "}" Term
@@ -32,6 +34,21 @@ Where:
 In HVM4:
 - Variables are affine; they must occur at most once.
 - Variables range globally; they can occur anywhere.
+- Numbers are written as `#n` in interaction rules (e.g., `#42`). This is distinct
+  from constructors which use `#Name{...}` syntax (e.g., `#Pair{a,b}`).
+
+Stuck Terms (DRY)
+-----------------
+
+When a term cannot reduce further because it's applied to something that isn't
+a function, it becomes "stuck". These stuck applications are represented as DRY
+(dry) terms using `^(f x)` syntax. For example:
+- `(#K{a,b} x)` → `^(#K{a,b} x)` (constructor applied to argument)
+- `(^n x)` → `^(^n x)` (name applied to argument)
+- `(^(f x) y)` → `^(^(f x) y)` (stuck term applied to argument)
+
+Stuck terms propagate through the system and can be duplicated and manipulated,
+but they don't reduce until the head becomes a lambda or eliminator.
 
 Application Interactions
 ------------------------
@@ -51,6 +68,10 @@ Application Interactions
 x ← a
 f
 
+(#K{...} a)
+----------- app-ctr
+^(#K{...} a)
+
 (λ{#K:h; m} &{})
 ---------------- app-mat-era
 &{}
@@ -69,6 +90,34 @@ f
 (λ{#K:h; m} #L{a,b})
 -------------------- app-mat-ctr-miss
 (m #L{a,b})
+
+(λ{n:f;g} &{})
+-------------- app-swi-era
+&{}
+
+(λ{n:f;g} &L{a,b})
+--------------------- app-swi-sup
+! F &L = f
+! G &L = g
+&L{(λ{n:F₀;G₀} a), (λ{n:F₁;G₁} b)}
+
+(λ{n:f;g} #m)
+-------------- app-swi-num
+if n == m: f
+else: (g #m)
+
+(λ{f} &{})
+---------- use-era
+&{}
+
+(λ{f} &L{a,b})
+----------------- use-sup
+! F &L = f
+&L{(λ{F₀} a), (λ{F₁} b)}
+
+(λ{f} x)
+--------- use-val
+(f x)
 
 (^n a)
 ------- app-nam
@@ -131,6 +180,24 @@ X₁ ← ^n
 ! A &L = x
 X₀ ← ^(F₀ A₀)
 X₁ ← ^(F₁ A₁)
+
+! X &L = #n
+----------- dup-num (via dup-node)
+X₀ ← #n
+X₁ ← #n
+
+! X &L = λ{n:f;g}
+------------------ dup-swi (via dup-node)
+! F &L = f
+! G &L = g
+X₀ ← λ{n:F₀;G₀}
+X₁ ← λ{n:F₁;G₁}
+
+! X &L = λ{f}
+------------- dup-use (via dup-node)
+! F &L = f
+X₀ ← λ{F₀}
+X₁ ← λ{F₁}
 ```
 
 Allocation Interactions
@@ -271,8 +338,7 @@ The body is a function `λx₀.λx₁.f` that receives both copies.
 
 ! X &(#n) = v; b
 ---------------- ddu-num
-! X &n = v
-b
+! X &n = v; (b X₀ X₁)
 ```
 
 Reference Interaction
