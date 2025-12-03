@@ -64,8 +64,8 @@ typedef struct {
 #define SWI 31
 #define USE 32
 #define OP2 33  // Op2(opr, x, y): strict on x, then y
-#define DSU 34  // DynSup(lab, a, b): strict on lab, creates SUP
-#define DDU 35  // DynDup(lab, val, bod): strict on lab, creates DUP
+#define DSU 34  // DSu(lab, a, b): strict on lab, creates SUP
+#define DDU 35  // DDu(lab, val, bod): strict on lab, creates DUP
 #define RED 36  // Red(f, g): guarded reduction, f ~> g
 
 // Stack frame tags (0x40+) - internal to WNF, encode reduction state
