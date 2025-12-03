@@ -1,0 +1,4 @@
+// Test: structural equality involving function application
+@add = λx.λy.(x + y)
+@main = @add(1, 2) === 3
+//1

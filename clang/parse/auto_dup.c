@@ -53,7 +53,8 @@ fn void parse_auto_dup_go(u64 loc, u32 idx, u32 *use, u32 n, u32 lab) {
       ari = tag - C00;
       break;
     }
-    case OP2: {
+    case OP2:
+    case EQL: {
       ari = 2;
       break;
     }
@@ -113,7 +114,8 @@ fn Term parse_auto_dup(Term body, u32 idx, u32 uses) {
       ari = tag - C00;
       break;
     }
-    case OP2: {
+    case OP2:
+    case EQL: {
       ari = 2;
       break;
     }

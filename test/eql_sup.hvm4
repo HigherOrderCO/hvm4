@@ -1,0 +1,4 @@
+// Test: structural equality with superposition (eql-sup-l, collapse flattens)
+@main = &a{1,2} === 1
+//1
+//0

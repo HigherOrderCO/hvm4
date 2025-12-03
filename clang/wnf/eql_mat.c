@@ -1,0 +1,29 @@
+// (λ{#K:ah;am} === λ{#K:bh;bm})  (same tag)
+// ----------------------------------------- eql-mat-match
+// (ah === bh) & (am === bm)
+//
+// (λ{#K:...} === λ{#L:...})  (different tag)
+// ----------------------------------------- eql-mat-miss
+// #0
+fn Term wnf_eql_mat(Term a, Term b) {
+  ITRS++;
+  u32 a_ext = term_ext(a);
+  u32 b_ext = term_ext(b);
+
+  // Different match tags -> #0
+  if (a_ext != b_ext) {
+    return term_new_num(0);
+  }
+
+  u32  a_loc = term_val(a);
+  u32  b_loc = term_val(b);
+  Term ah    = HEAP[a_loc + 0];
+  Term am    = HEAP[a_loc + 1];
+  Term bh    = HEAP[b_loc + 0];
+  Term bm    = HEAP[b_loc + 1];
+
+  // (ah === bh) & (am === bm)
+  Term eq_h = term_new_eql(ah, bh);
+  Term eq_m = term_new_eql(am, bm);
+  return term_new_op2(OP_MUL, eq_h, eq_m);
+}

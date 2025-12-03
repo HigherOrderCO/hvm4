@@ -1,0 +1,3 @@
+// Test: structural equality of nat sugar (different)
+@main = 3n === 4n
+//0

@@ -67,6 +67,7 @@ typedef struct {
 #define DSU 34  // DSu(lab, a, b): strict on lab, creates SUP
 #define DDU 35  // DDu(lab, val, bod): strict on lab, creates DUP
 #define RED 36  // Red(f, g): guarded reduction, f ~> g
+#define EQL 37  // Eql(a, b): structural equality, strict on a, then b
 
 // Stack frame tags (0x40+) - internal to WNF, encode reduction state
 // Note: regular term tags (APP, MAT, USE, CO0, CO1, OP2, DSU, DDU) also used as frames
@@ -75,6 +76,8 @@ typedef struct {
 #define F_RED_MAT     0x41  // ((f ~> mat) □): val=app_loc. After reducing g, mat stored at HEAP[red_loc+1]
 #define F_RED_USE     0x42  // ((f ~> use) □): val=app_loc. After reducing g, use stored at HEAP[red_loc+1]
 #define F_OP2_NUM     0x43  // (x op □): ext=opr, val=x_num_val
+#define F_EQL_L       0x44  // (□ === b): val=eql_loc, b at HEAP[eql_loc+1]
+#define F_EQL_R       0x45  // (a === □): val=eql_loc, a stored in ext as heap loc
 
 // Operation codes (stored in EXT field of OP2)
 #define OP_ADD 0
@@ -233,6 +236,7 @@ static u32    PARSE_FRESH_LAB = 0;
 #include "term/new/dsu.c"
 #include "term/new/ddu.c"
 #include "term/new/red.c"
+#include "term/new/eql.c"
 #include "term/new/num.c"
 #include "term/clone.c"
 
@@ -364,6 +368,15 @@ static u32    PARSE_FRESH_LAB = 0;
 #include "wnf/app_red_use_era.c"
 #include "wnf/app_red_use_sup.c"
 #include "wnf/app_red_use_val.c"
+#include "wnf/eql_era.c"
+#include "wnf/eql_sup.c"
+#include "wnf/eql_num.c"
+#include "wnf/eql_lam.c"
+#include "wnf/eql_ctr.c"
+#include "wnf/eql_mat.c"
+#include "wnf/eql_use.c"
+#include "wnf/eql_nam.c"
+#include "wnf/eql_dry.c"
 #include "wnf/_.c"
 
 // SNF

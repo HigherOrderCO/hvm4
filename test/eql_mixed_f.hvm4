@@ -1,0 +1,3 @@
+// Test: structural equality of different types (num vs ctr)
+@main = 42 === #Box{42}
+//0

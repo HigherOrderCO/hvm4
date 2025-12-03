@@ -1,0 +1,3 @@
+// Test: structural equality of nullary constructors
+@main = #Unit{} === #Unit{}
+//1

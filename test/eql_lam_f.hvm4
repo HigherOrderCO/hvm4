@@ -1,0 +1,3 @@
+// Test: structural equality of lambdas (not equal)
+@main = (λx.x) === (λy.0)
+//0

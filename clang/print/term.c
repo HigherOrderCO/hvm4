@@ -198,6 +198,15 @@ fn void print_term_go(FILE *f, Term term, u32 depth) {
       print_term_go(f, HEAP[loc + 1], depth);
       break;
     }
+    case EQL: {
+      u32 loc = term_val(term);
+      fputc('(', f);
+      print_term_go(f, HEAP[loc + 0], depth);
+      fputs(" === ", f);
+      print_term_go(f, HEAP[loc + 1], depth);
+      fputc(')', f);
+      break;
+    }
   }
 }
 

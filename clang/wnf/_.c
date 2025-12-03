@@ -97,6 +97,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
           case USE:
           case C00 ... C16:
           case OP2:
+          case EQL:
           case DSU:
           case DDU:
           case RED: {
@@ -124,6 +125,14 @@ __attribute__((hot)) fn Term wnf(Term term) {
         Term x   = HEAP[loc + 0];
         STACK[S_POS++] = next;
         next = x;
+        goto enter;
+      }
+
+      case EQL: {
+        u32  loc = term_val(next);
+        Term a   = HEAP[loc + 0];
+        STACK[S_POS++] = next;
+        next = a;
         goto enter;
       }
 
@@ -575,6 +584,97 @@ __attribute__((hot)) fn Term wnf(Term term) {
             default: {
               // Stuck: (x op y) where x is NUM, y is not
               whnf = term_new_op2(opr, x, whnf);
+              continue;
+            }
+          }
+        }
+
+        // -----------------------------------------------------------------------
+        // EQL frame: (□ === b) - we reduced a, transition to F_EQL_R or dispatch
+        // -----------------------------------------------------------------------
+        case EQL: {
+          u32  loc = term_val(frame);
+          Term b   = HEAP[loc + 1];
+
+          switch (term_tag(whnf)) {
+            case ERA: {
+              whnf = wnf_eql_era_l();
+              continue;
+            }
+            case SUP: {
+              next = wnf_eql_sup_l(whnf, b);
+              goto enter;
+            }
+            default: {
+              // Store a's WHNF location, push F_EQL_R, enter b
+              // We store a in HEAP[loc+0] for later retrieval
+              HEAP[loc + 0] = whnf;
+              STACK[S_POS++] = term_new(0, F_EQL_R, 0, loc);
+              next = b;
+              goto enter;
+            }
+          }
+        }
+
+        // -----------------------------------------------------------------------
+        // F_EQL_R frame: (a === □) - we reduced b, now compare both WHNFs
+        // -----------------------------------------------------------------------
+        case F_EQL_R: {
+          u32  loc = term_val(frame);
+          Term a   = HEAP[loc + 0];  // a's WHNF was stored here
+
+          switch (term_tag(whnf)) {
+            case ERA: {
+              whnf = wnf_eql_era_r();
+              continue;
+            }
+            case SUP: {
+              next = wnf_eql_sup_r(a, whnf);
+              goto enter;
+            }
+            default: {
+              // Both a and b are WHNF, now dispatch based on types
+              u8 a_tag = term_tag(a);
+              u8 b_tag = term_tag(whnf);
+
+              // NUM === NUM
+              if (a_tag == NUM && b_tag == NUM) {
+                whnf = wnf_eql_num(a, whnf);
+                continue;
+              }
+              // LAM === LAM
+              if (a_tag == LAM && b_tag == LAM) {
+                next = wnf_eql_lam(a, whnf);
+                goto enter;
+              }
+              // CTR === CTR
+              if (a_tag >= C00 && a_tag <= C16 && b_tag >= C00 && b_tag <= C16) {
+                next = wnf_eql_ctr(a, whnf);
+                goto enter;
+              }
+              // MAT/SWI === MAT/SWI
+              if ((a_tag == MAT || a_tag == SWI) && (b_tag == MAT || b_tag == SWI)) {
+                next = wnf_eql_mat(a, whnf);
+                goto enter;
+              }
+              // USE === USE
+              if (a_tag == USE && b_tag == USE) {
+                next = wnf_eql_use(a, whnf);
+                goto enter;
+              }
+              // NAM === NAM
+              if (a_tag == NAM && b_tag == NAM) {
+                whnf = wnf_eql_nam(a, whnf);
+                continue;
+              }
+              // DRY === DRY
+              if (a_tag == DRY && b_tag == DRY) {
+                next = wnf_eql_dry(a, whnf);
+                goto enter;
+              }
+              // Otherwise: not equal
+              ITRS++;
+              whnf = term_new_num(0);
               continue;
             }
           }

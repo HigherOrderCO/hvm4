@@ -1,0 +1,3 @@
+// Test: structural equality of constructors (same tag, same fields)
+@main = #Pair{1,2} === #Pair{1,2}
+//1

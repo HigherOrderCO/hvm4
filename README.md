@@ -330,6 +330,7 @@ if not.
 
 (λax.af == λbx.bf)
 ------------------ eql-lam
+X := fresh_nam()
 ax ← X
 bx ← X
 af == bf
@@ -341,10 +342,6 @@ af == bf
 (λ{#K:ah;am} == λ{#K:bh;bm})
 ---------------------------- eql-mat
 (ah == bh) & (am == bm)
-
-(λ{n:af;ag} == λ{n:bf;bg})
--------------------------- eql-swi
-(af == bf) & (ag == bg)
 
 (λ{af} == λ{bf})
 ---------------- eql-use

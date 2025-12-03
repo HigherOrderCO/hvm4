@@ -1,0 +1,3 @@
+// Test: structural equality of strings
+@main = "hello" === "hello"
+//1

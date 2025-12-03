@@ -24,7 +24,8 @@ fn u32 term_arity(Term t) {
     case C00 ... C16: {
       return term_tag(t) - C00;
     }
-    case OP2: {
+    case OP2:
+    case EQL: {
       return 2;
     }
     case DSU:
