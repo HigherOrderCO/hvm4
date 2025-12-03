@@ -211,6 +211,12 @@ fn void print_term_go(FILE *f, Term term, u32 depth) {
       fputc(')', f);
       break;
     }
+    case UNS: {
+      u32 loc = term_val(term);
+      fputs("!${}; ", f);
+      print_term_go(f, HEAP[loc + 0], depth);
+      break;
+    }
   }
 }
 

@@ -1,7 +1,12 @@
 fn Term parse_term(PState *s, u32 depth);
+fn Term parse_term_uns(PState *s, u32 depth);
 
 fn Term parse_term_dup(PState *s, u32 depth) {
   parse_skip(s);
+  // Check for unscoped binding: ! ${f, v}; body
+  if (parse_match(s, "$")) {
+    return parse_term_uns(s, depth);
+  }
   // Check for !!x = val or !!&x = val (strict let, optionally cloned)
   int strict = parse_match(s, "!");
   parse_skip(s);

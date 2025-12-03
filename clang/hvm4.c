@@ -68,6 +68,7 @@ typedef struct {
 #define DDU 35  // DDu(lab, val, bod): strict on lab, creates DUP
 #define RED 36  // Red(f, g): guarded reduction, f ~> g
 #define EQL 37  // Eql(a, b): structural equality, strict on a, then b
+#define UNS 38  // Unscoped(xf, xv): binds an unscoped lambda/var pair to xf and xv
 
 // Stack frame tags (0x40+) - internal to WNF, encode reduction state
 // Note: regular term tags (APP, MAT, USE, CO0, CO1, OP2, DSU, DDU) also used as frames
@@ -237,6 +238,7 @@ static u32    PARSE_FRESH_LAB = 0x800000; // start at 2^23 to avoid collision wi
 #include "term/new/ddu.c"
 #include "term/new/red.c"
 #include "term/new/eql.c"
+#include "term/new/uns.c"
 #include "term/new/num.c"
 #include "term/clone.c"
 
@@ -298,6 +300,7 @@ static u32    PARSE_FRESH_LAB = 0x800000; // start at 2^23 to avoid collision wi
 #include "parse/name.c"
 #include "parse/utf8.c"
 #include "parse/term/lam.c"
+#include "parse/term/uns.c"
 #include "parse/term/dup.c"
 #include "parse/term/sup.c"
 #include "parse/term/ctr.c"
@@ -377,6 +380,7 @@ static u32    PARSE_FRESH_LAB = 0x800000; // start at 2^23 to avoid collision wi
 #include "wnf/eql_use.c"
 #include "wnf/eql_nam.c"
 #include "wnf/eql_dry.c"
+#include "wnf/uns.c"
 #include "wnf/_.c"
 
 // SNF

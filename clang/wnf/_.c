@@ -49,6 +49,11 @@ __attribute__((hot)) fn Term wnf(Term term) {
         goto enter;
       }
 
+      case UNS: {
+        next = wnf_uns(next);
+        goto enter;
+      }
+
       case REF: {
         u32 nam = term_ext(next);
         if (BOOK[nam] != 0) {
@@ -95,6 +100,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
           case MAT:
           case SWI:
           case USE:
+          case UNS:
           case C00 ... C16:
           case OP2:
           case EQL:

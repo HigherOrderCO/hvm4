@@ -26,6 +26,7 @@ Term ::=
 | DSu ::= "&" "(" Term ")" "{" Term "," Term "}"
 | DDu ::= "!" Name "&" "(" Term ")" "=" Term ";" Term
 | Red ::= Term "~>" Term
+| Uns ::= "!" "$" "{" Name "," Name "}" ";" Term
 ```
 
 Where:
@@ -405,6 +406,18 @@ The body is a function `λx₀.λx₁.f` that receives both copies.
 ! X &(#n) = v; b
 ---------------- ddu-num
 ! X &n = v; (b X₀ X₁)
+```
+
+Unscoped Binding Interaction
+-----------------------------
+
+Unscoped bindings allow the creation of lambdas whose variables can escape their normal scope.
+The body is a function `λf.λv.f` that receives the lambda and its variable.
+
+```
+! ${f, v}; t
+------------------- uns
+t(λy.λ$x.y, $x)
 ```
 
 Reference Interaction

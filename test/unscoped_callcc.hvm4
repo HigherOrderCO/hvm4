@@ -1,0 +1,12 @@
+@Seq = λ{λa.λ{λb.a}}
+@CC_lang =
+  λprogram.
+  ! ${callccf, calccv};
+  ! ${garbagef, garbagev};
+  ! ${holef, holev};
+  ! callcc = λcallback. garbagef(holev, callback(holef(0)));
+  ! result = program(callcc);
+  @Seq(result, garbagev)
+
+@main = @CC_lang(λcallcc.(10 + callcc(λk.k(42) + 1729)))
+//52

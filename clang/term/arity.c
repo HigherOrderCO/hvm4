@@ -32,6 +32,9 @@ fn u32 term_arity(Term t) {
     case DDU: {
       return 3;
     }
+    case UNS: {
+      return 1;
+    }
     default: {
       return 0;
     }
