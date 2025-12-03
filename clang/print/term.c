@@ -115,26 +115,30 @@ fn void print_term_go(FILE *f, Term term, u32 depth) {
       print_term_go(f, HEAP[loc + 1], depth + 1);
       break;
     }
-    case MAT: {
-      u32 loc = term_val(term);
-      fputs("λ{", f);
-      print_mat_name(f, term_ext(term));
-      fputc(':', f);
-      print_term_go(f, HEAP[loc + 0], depth);
-      fputc(';', f);
-      print_term_go(f, HEAP[loc + 1], depth);
-      fputc('}', f);
-      break;
-    }
+    case MAT:
     case SWI: {
-      u32 loc = term_val(term);
-      u32 num = term_ext(term);
       fputs("λ{", f);
-      fprintf(f, "%u", num);
-      fputc(':', f);
-      print_term_go(f, HEAP[loc + 0], depth);
-      fputc(';', f);
-      print_term_go(f, HEAP[loc + 1], depth);
+      Term cur = term;
+      while (term_tag(cur) == MAT || term_tag(cur) == SWI) {
+        u32 loc = term_val(cur);
+        if (term_tag(cur) == SWI) fprintf(f, "%u", term_ext(cur));
+        else print_mat_name(f, term_ext(cur));
+        fputc(':', f);
+        print_term_go(f, HEAP[loc + 0], depth);
+        Term next = HEAP[loc + 1];
+        if (term_tag(next) == MAT || term_tag(next) == SWI) fputc(';', f);
+        cur = next;
+      }
+      // Handle tail: ERA = empty, USE = wrapped default, other = default
+      if (term_tag(cur) == ERA) {
+        // empty default - just close
+      } else if (term_tag(cur) == USE) {
+        fputc(';', f);
+        print_term_go(f, HEAP[term_val(cur)], depth);
+      } else {
+        fputc(';', f);
+        print_term_go(f, cur, depth);
+      }
       fputc('}', f);
       break;
     }
