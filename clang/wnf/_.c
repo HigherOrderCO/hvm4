@@ -204,11 +204,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
               next = wnf_app_sup(frame, whnf);
               goto enter;
             }
-            case MAT: {
-              STACK[S_POS++] = whnf;
-              next = arg;
-              goto enter;
-            }
+            case MAT:
             case SWI: {
               STACK[S_POS++] = whnf;
               next = arg;
@@ -263,17 +259,11 @@ __attribute__((hot)) fn Term wnf(Term term) {
               next = wnf_app_red_red(f, g, arg);
               goto enter;
             }
-            case MAT: {
+            case MAT:
+            case SWI: {
               // ((f ~> mat) x): store mat in RED's g slot, push F_RED_MAT, enter arg
               HEAP[red_loc + 1] = g;  // store mat where g was
               STACK[S_POS++] = term_new(0, F_RED_MAT, 0, app_loc);
-              next = arg;
-              goto enter;
-            }
-            case SWI: {
-              // ((f ~> swi) x): store swi in RED's g slot, push F_RED_SWI, enter arg
-              HEAP[red_loc + 1] = g;
-              STACK[S_POS++] = term_new(0, F_RED_SWI, 0, app_loc);
               next = arg;
               goto enter;
             }
@@ -304,9 +294,10 @@ __attribute__((hot)) fn Term wnf(Term term) {
         }
 
         // -----------------------------------------------------------------------
-        // MAT frame: (mat □) - we reduced arg, dispatch mat interaction
+        // MAT/SWI frame: (mat □) - we reduced arg, dispatch mat interaction
         // -----------------------------------------------------------------------
-        case MAT: {
+        case MAT:
+        case SWI: {
           Term mat = frame;
           switch (term_tag(whnf)) {
             case ERA: {
@@ -319,6 +310,19 @@ __attribute__((hot)) fn Term wnf(Term term) {
             }
             case C00 ... C16: {
               next = wnf_app_mat_ctr(mat, whnf);
+              goto enter;
+            }
+            case NUM: {
+              // (mat #n): compare ext(mat) to val(num)
+              ITRS++;
+              u32  loc = term_val(mat);
+              Term f   = HEAP[loc + 0];
+              Term g   = HEAP[loc + 1];
+              if (term_ext(mat) == term_val(whnf)) {
+                next = f;
+              } else {
+                next = term_new_app(g, whnf);
+              }
               goto enter;
             }
             case RED: {
@@ -362,86 +366,19 @@ __attribute__((hot)) fn Term wnf(Term term) {
               }
               goto enter;
             }
+            case NUM: {
+              if (term_ext(mat) == term_val(whnf)) {
+                next = wnf_app_red_mat_num_match(f, mat, whnf);
+              } else {
+                next = wnf_app_red_mat_num_miss(f, mat, whnf);
+              }
+              goto enter;
+            }
             case RED: {
               // ((f ~> mat) (g ~> h)): drop g, reduce (mat h) in guarded context
               u32  arg_red_loc = term_val(whnf);
               Term h = HEAP[arg_red_loc + 1];
               STACK[S_POS++] = frame;  // keep F_RED_MAT frame
-              next = h;
-              goto enter;
-            }
-            default: {
-              // Stuck - drop g, return ^(f arg)
-              whnf = term_new_dry(f, whnf);
-              continue;
-            }
-          }
-        }
-
-        // -----------------------------------------------------------------------
-        // SWI frame: (swi □) - we reduced arg, dispatch swi interaction
-        // -----------------------------------------------------------------------
-        case SWI: {
-          Term swi = frame;
-          switch (term_tag(whnf)) {
-            case ERA: {
-              whnf = wnf_app_swi_era();
-              continue;
-            }
-            case NUM: {
-              next = wnf_app_swi_num(swi, whnf);
-              goto enter;
-            }
-            case SUP: {
-              next = wnf_app_swi_sup(swi, whnf);
-              goto enter;
-            }
-            case RED: {
-              // (swi (g ~> h)): drop g, reduce (swi h)
-              u32  red_loc = term_val(whnf);
-              Term h = HEAP[red_loc + 1];
-              STACK[S_POS++] = swi;
-              next = h;
-              goto enter;
-            }
-            default: {
-              whnf = term_new_app(swi, whnf);
-              continue;
-            }
-          }
-        }
-
-        // -----------------------------------------------------------------------
-        // F_RED_SWI frame: ((f ~> swi) □) - we reduced arg, dispatch guarded swi
-        // -----------------------------------------------------------------------
-        case F_RED_SWI: {
-          u32  app_loc = term_val(frame);
-          Term red     = HEAP[app_loc + 0];
-          u32  red_loc = term_val(red);
-          Term f       = HEAP[red_loc + 0];
-          Term swi     = HEAP[red_loc + 1];  // swi was stored here
-          switch (term_tag(whnf)) {
-            case ERA: {
-              whnf = wnf_app_red_swi_era();
-              continue;
-            }
-            case SUP: {
-              next = wnf_app_red_swi_sup(f, swi, whnf);
-              goto enter;
-            }
-            case NUM: {
-              if (term_val(whnf) == term_ext(swi)) {
-                next = wnf_app_red_swi_match(f, swi, whnf);
-              } else {
-                next = wnf_app_red_swi_miss(f, swi, whnf);
-              }
-              goto enter;
-            }
-            case RED: {
-              // ((f ~> swi) (g ~> h)): drop g, reduce (swi h) in guarded context
-              u32  arg_red_loc = term_val(whnf);
-              Term h = HEAP[arg_red_loc + 1];
-              STACK[S_POS++] = frame;  // keep F_RED_SWI frame
               next = h;
               goto enter;
             }

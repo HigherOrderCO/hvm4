@@ -22,6 +22,7 @@ Term ::=
 | Alo ::= "@" "{" [Name] "}" Term
 | Num ::= Integer
 | Op2 ::= Term Oper Term
+| Eql ::= Term "==" Term
 | DSu ::= "&" "(" Term ")" "{" Term "," Term "}"
 | DDu ::= "!" Name "&" "(" Term ")" "=" Term ";" Term
 | Red ::= Term "~>" Term
@@ -264,35 +265,29 @@ x' ← fresh
 Numeric Operation Interactions
 ------------------------------
 
-Numeric operations use a two-phase reduction. `(x + y)` is strict on `x`,
-and when `x` reduces to a number, it creates `(#n +. y)` which is strict on `y`.
-When both arguments are numbers, the operation is performed.
+Numeric operations are strict on both arguments. The evaluator reduces the
+left argument first, then the right argument, then performs the operation.
 
 ```
 (&{} + y)
----------- op2-era
+---------- op2-era-l
 &{}
 
 (&L{a,b} + y)
----------------------- op2-sup
+---------------------- op2-sup-l
 ! Y &L = y
 &L{(a + Y₀), (b + Y₁)}
 
-(#n + y)
---------- op2-num
-(#n +. y)
-
-(x +. &{})
----------- op1-era
+(#n + &{})
+---------- op2-era-r
 &{}
 
-(x +. &L{a,b})
---------------------- op1-sup
-! X &L = x
-&L{(X₀ +. a), (X₁ +. b)}
+(#n + &L{a,b})
+---------------------- op2-sup-r
+&L{(#n + a), (#n + b)}
 
-(#a +. #b)
----------- op1-num
+(#a + #b)
+---------- op2-num
 #(a + b)
 ```
 
@@ -302,6 +297,75 @@ Available operators:
 - Comparison: `==` `!=` `<` `<=` `>` `>=`
 
 The `~` operator computes bitwise NOT: `(0 ~ x)` returns `~x`.
+
+Equality Interactions
+---------------------
+
+Equality `(a == b)` performs structural comparison of arbitrary terms. It is
+strict on both arguments (left first, then right). Returns `#1` if equal, `#0`
+if not.
+
+```
+(&{} == b)
+---------- eql-era-l
+&{}
+
+(&L{a0,a1} == b)
+---------------------- eql-sup-l
+! B &L = b
+&L{(a0 == B₀), (a1 == B₁)}
+
+(a == &{})
+---------- eql-era-r
+&{}
+
+(a == &L{b0,b1})
+---------------------- eql-sup-r
+! A &L = a
+&L{(A₀ == b0), (A₁ == b1)}
+
+(#a == #b)
+---------- eql-num
+#(a == b)
+
+(λax.af == λbx.bf)
+------------------ eql-lam
+ax ← X
+bx ← X
+af == bf
+
+(#K{a0,a1...} == #K{b0,b1...})
+------------------------------ eql-ctr
+(a0 == b0) & (a1 == b1) & ...
+
+(λ{#K:ah;am} == λ{#K:bh;bm})
+---------------------------- eql-mat
+(ah == bh) & (am == bm)
+
+(λ{n:af;ag} == λ{n:bf;bg})
+-------------------------- eql-swi
+(af == bf) & (ag == bg)
+
+(λ{af} == λ{bf})
+---------------- eql-use
+af == bf
+
+(^n == ^n)
+---------- eql-nam
+#1
+
+(^(af ax) == ^(bf bx))
+---------------------- eql-dry
+(af == bf) & (ax == bx)
+
+(_ == _)
+-------- eql-other
+#0
+```
+
+Note: The `&` in results like `(a0 == b0) & (a1 == b1)` represents boolean AND
+via numeric operations (can be implemented as `(a * b)` or bitwise `(a && b)`).
+The `eql-other` rule catches all mismatched type/tag combinations.
 
 Dynamic Superposition Interactions
 ----------------------------------

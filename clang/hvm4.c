@@ -61,7 +61,7 @@ typedef struct {
 #define C15 28
 #define C16 29
 #define NUM 30
-#define SWI 31
+#define SWI 31  // Same as MAT but for numbers (for parser/printer distinction)
 #define USE 32
 #define OP2 33  // Op2(opr, x, y): strict on x, then y
 #define DSU 34  // DSu(lab, a, b): strict on lab, creates SUP
@@ -69,13 +69,12 @@ typedef struct {
 #define RED 36  // Red(f, g): guarded reduction, f ~> g
 
 // Stack frame tags (0x40+) - internal to WNF, encode reduction state
-// Note: regular term tags (APP, MAT, SWI, USE, CO0, CO1, OP2, DSU, DDU) also used as frames
+// Note: regular term tags (APP, MAT, USE, CO0, CO1, OP2, DSU, DDU) also used as frames
 // These frames reuse existing heap nodes to avoid allocation
 #define F_APP_RED     0x40  // ((f ~> □) x): val=app_loc. RED at HEAP[app_loc], arg at HEAP[app_loc+1]
 #define F_RED_MAT     0x41  // ((f ~> mat) □): val=app_loc. After reducing g, mat stored at HEAP[red_loc+1]
-#define F_RED_SWI     0x42  // ((f ~> swi) □): val=app_loc. After reducing g, swi stored at HEAP[red_loc+1]
-#define F_RED_USE     0x43  // ((f ~> use) □): val=app_loc. After reducing g, use stored at HEAP[red_loc+1]
-#define F_OP2_NUM     0x44  // (x op □): ext=opr, val=x_num_val
+#define F_RED_USE     0x42  // ((f ~> use) □): val=app_loc. After reducing g, use stored at HEAP[red_loc+1]
+#define F_OP2_NUM     0x43  // (x op □): ext=opr, val=x_num_val
 
 // Operation codes (stored in EXT field of OP2)
 #define OP_ADD 0
@@ -348,9 +347,6 @@ static u32    PARSE_FRESH_LAB = 0;
 #include "wnf/ddu_era.c"
 #include "wnf/ddu_num.c"
 #include "wnf/ddu_sup.c"
-#include "wnf/app_swi_era.c"
-#include "wnf/app_swi_num.c"
-#include "wnf/app_swi_sup.c"
 #include "wnf/use_era.c"
 #include "wnf/use_sup.c"
 #include "wnf/use_val.c"
@@ -364,9 +360,7 @@ static u32    PARSE_FRESH_LAB = 0;
 #include "wnf/app_red_mat_era.c"
 #include "wnf/app_red_mat_sup.c"
 #include "wnf/app_red_mat_ctr.c"
-#include "wnf/app_red_swi_era.c"
-#include "wnf/app_red_swi_sup.c"
-#include "wnf/app_red_swi_num.c"
+#include "wnf/app_red_mat_num.c"
 #include "wnf/app_red_use_era.c"
 #include "wnf/app_red_use_sup.c"
 #include "wnf/app_red_use_val.c"
