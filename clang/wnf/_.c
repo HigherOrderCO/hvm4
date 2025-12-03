@@ -118,9 +118,16 @@ __attribute__((hot)) fn Term wnf(Term term) {
       }
 
       case P00 ... P16: {
-        u32  nam = term_ext(next);
-        u32  ari = term_tag(next) - P00;
-        u32  loc = term_val(next);
+        if (S_POS > base) {
+          Term top = STACK[S_POS - 1];
+          if (term_tag(top) == CO0 || term_tag(top) == CO1) {
+            whnf = next;
+            goto apply;
+          }
+        }
+        u32 nam = term_ext(next);
+        u32 ari = term_tag(next) - P00;
+        u32 loc = term_val(next);
         ITRS++;
         next = prim_call(nam, ari, loc);
         goto enter;
@@ -332,6 +339,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
             case MAT:
             case SWI:
             case USE:
+            case P00 ... P16:
             case C00 ... C16: {
               whnf = wnf_dup_node(lab, loc, side, whnf);
               next = whnf;
