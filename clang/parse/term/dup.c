@@ -2,21 +2,6 @@ fn Term parse_term(PState *s, u32 depth);
 
 fn Term parse_term_dup(PState *s, u32 depth) {
   parse_skip(s);
-  // Check for &(lab)=val form (dup primitive call)
-  // Must be &( not just &
-  if (parse_peek(s) == '&' && parse_peek_at(s, 1) == '(') {
-    parse_consume(s, "&");
-    parse_consume(s, "(");
-    Term lab = parse_term(s, depth);
-    parse_consume(s, ")");
-    parse_consume(s, "=");
-    Term val = parse_term(s, depth);
-    parse_skip(s);
-    parse_match(s, ";");
-    parse_skip(s);
-    Term body = parse_term(s, depth);
-    return term_new_app(term_new_app(term_new_app(term_new_ref(table_find("dup", 3)), lab), val), body);
-  }
   // Check for !!x = val or !!&x = val (strict let, optionally cloned)
   int strict = parse_match(s, "!");
   parse_skip(s);
@@ -65,8 +50,39 @@ fn Term parse_term_dup(PState *s, u32 depth) {
     return term_new_app(lam, val);
   }
   // Regular DUP: !x&label = val; body  or  !x& = val; body (auto-label)
+  // Dynamic DUP: !x&(lab) = val; body  (lab is an expression)
   parse_consume(s, "&");
   parse_skip(s);
+  // Check for dynamic label: &(expr)
+  // Syntax: ! X &(lab) = val; ... X₀ ... X₁ ...
+  // Desugars to: @dup(lab, val, λx0.λx1. body[X₀→x0, X₁→x1])
+  if (parse_peek(s) == '(') {
+    parse_consume(s, "(");
+    Term lab_term = parse_term(s, depth);
+    parse_consume(s, ")");
+    parse_consume(s, "=");
+    Term val = parse_term(s, depth);
+    parse_skip(s);
+    parse_match(s, ";");
+    parse_skip(s);
+    // Use special marker lab=0xFFFFFF to indicate dynamic dup binding
+    // The var parser will emit VAR instead of CO0/CO1 for this binding
+    // X₀ will have index = depth+2 - 1 - depth = 1 (outer lambda)
+    // X₁ will have index = depth+2 - 1 - (depth+1) = 0 (inner lambda)
+    // We push binding at 'depth' but body is parsed at depth+2
+    parse_bind_push(nam, depth, 0xFFFFFF, 0);  // dynamic dup marker
+    Term body = parse_term(s, depth + 2);
+    parse_bind_pop();
+    // Generate: @dup(lab, val, λ_.λ_.body)
+    u64 loc0     = heap_alloc(1);
+    u64 loc1     = heap_alloc(1);
+    HEAP[loc1]   = body;
+    Term lam1    = term_new(0, LAM, depth + 1, loc1);
+    HEAP[loc0]   = lam1;
+    Term lam0    = term_new(0, LAM, depth, loc0);
+    return term_new_app(term_new_app(term_new_app(term_new_ref(table_find("dup", 3)), lab_term), val), lam0);
+  }
+  // Static label
   u32 lab;
   if (parse_peek(s) == '=') {
     lab = PARSE_FRESH_LAB++;
