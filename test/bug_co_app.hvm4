@@ -1,0 +1,6 @@
+// BUG: CO ref applied as function inside dup value produces unresolved subs
+// This is a reduction bug, not auto-dup
+// Expected: [10,10] but gets [_₀,_₁]
+// TODO: fix this bug
+@main = ! X & = 10; ! Y & = X₀(1); [Y₀, Y₁]
+//[_₀,_₁]

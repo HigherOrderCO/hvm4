@@ -1,0 +1,19 @@
+// Nightmare stress test: deeply nested mixed bindings
+// Tests all interactions: cloned/non-cloned, static/dynamic dups, lambdas, shifting
+
+@nightmare =
+  ! &A & = 1;                    // L0: cloned static dup
+  ! B & = 2;                     // L1: non-cloned static dup
+  λ&c.                           // L2: cloned lambda
+  ! &D &(0) = 4;                 // L3: cloned dynamic dup (body at L5)
+  ! E & = 5;                     // L5: non-cloned static dup
+  λf.                            // L6: non-cloned lambda
+  [A₀, A₀, A₁, A₁,               // A: 2+2 uses, both sides auto-dupped
+   B₀, B₁,                       // B: 1+1 uses, no auto-dup
+   c, c, c,                      // c: 3 uses, auto-dupped
+   D₀, D₀, D₀, D₁, D₁,           // D: 3+2 uses, both sides auto-dupped
+   E₀, E₁,                       // E: 1+1 uses, no auto-dup
+   f]                            // f: 1 use, no auto-dup
+
+@main = @nightmare(3)(6)
+//[1,1,1,1,2,2,3,3,3,4,4,4,4,4,5,5,6]

@@ -1,0 +1,11 @@
+// Test: cloned refs inside dup VALUE positions (not just bodies)
+// The value path uses idx+0, dep+0 which could have different behavior
+
+@val_test =
+  ! &X & = 100;                            // X at level 0, cloned
+  ! A & = [X₀, X₀, X₁];                    // X refs in A's VALUE
+  ! B & = λ&y. [X₀, X₀, y, y];             // X refs + cloned y in B's VALUE
+  [A₀, A₁, B₀(1), B₁(2)]                   // Use all the dups
+
+@main = @val_test
+//[[100,100,100],[100,100,100],[100,100,1,1],[100,100,2,2]]

@@ -1,0 +1,25 @@
+// Test: cloning bound variables through complex structures
+// Focus on lambdas capturing cloned vars, lists with vars, nested cloning
+
+@test1 =
+  λ&a. λ&b.                                // cloned outer vars
+  ! &X & = [a, λk. [b, k]];                // X is list with lambda capturing b
+  [X₀, X₀, X₁]                             // X used 3 times total
+
+@test2 =
+  λ&a. λ&b. λ&c.
+  ! &P & = [a, [b, c]];                    // nested list with all cloned vars
+  ! &Q & = [P₀, P₁];                       // Q captures P refs
+  [[P₀, P₀], [Q₀, Q₁]]                     // mix of P and Q uses
+
+@test3 =
+  λ&f.                                     // f is a cloned function
+  ! &X & = [f(1), f(2)];                   // X contains applications of f
+  [X₀, X₀, X₁]                             // X used 3 times
+
+@main = [
+  @test1(10)(20),
+  @test2(1)(2)(3),
+  @test3(λx. x + 100)
+]
+//[[[10,λa.[20,a]],[10,λa.[20,a]],[10,λa.[20,a]]],[[[1,[2,3]],[1,[2,3]]],[[[1,[2,3]],[1,[2,3]]],[[1,[2,3]],[1,[2,3]]]]],[[101,102],[101,102],[101,102]]]

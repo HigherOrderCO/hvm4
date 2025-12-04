@@ -1,0 +1,14 @@
+// Test: superpositions mixed with cloned bindings
+// SUP branches may have different auto-dup behavior
+
+@sup_test =
+  ! &X & = 10;                             // cloned dup
+  λ&y.                                     // cloned lambda
+  &L{                                      // superposition
+    [X₀, X₀, y, y],                        // branch 0: uses X₀ twice, y twice
+    [X₁, X₁, X₁, y]                        // branch 1: uses X₁ three times, y once
+  }
+
+@main = @sup_test(99)
+//[10,10,99,99]
+//[10,10,10,99]
