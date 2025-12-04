@@ -1,6 +1,7 @@
+// Auto-dup in match branch with inner lambda
 @fun = λ&v. λ{
   #A: [v,v]
   λx. x
 }
-
 @main = @fun(0, #B)
+//#B{}

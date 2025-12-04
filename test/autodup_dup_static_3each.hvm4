@@ -1,0 +1,3 @@
+// Auto-dup on static dup: X₀ and X₁ both used 3 times
+@main = ! &X & = 5; [[X₀, X₀, X₀], [X₁, X₁, X₁]]
+//[[5,5,5],[5,5,5]]

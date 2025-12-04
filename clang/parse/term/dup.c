@@ -83,16 +83,13 @@ fn Term parse_term_dup(PState *s, u32 depth) {
     u32 uses1 = parse_bind_get_uses1();
     parse_bind_pop();
     // Apply auto-dup for cloned dynamic dup
-    // For dynamic dup, X₀ and X₁ are VAR references to nested lambdas
-    // X₀ → VAR at idx=1 (outer lambda), X₁ → VAR at idx=0 (inner lambda)
-    // The DUP traversal in parse_auto_dup handles depth naturally, so we pass
-    // the original indices. When DUPs are inserted, the traversal adds to idx
-    // and the shifted VARs are found at the correct depth.
+    // X₀ → VAR(1), X₁ → VAR(0). After first auto-dup wraps in DUPs,
+    // the second auto-dup traverses those DUPs (incrementing idx) to find X₁.
     if (cloned && uses0 > 1) {
-      body = parse_auto_dup(body, 1, uses0);  // Auto-dup VAR(1) for X₀ uses
+      body = parse_auto_dup(body, 1, uses0);
     }
     if (cloned && uses1 > 1) {
-      body = parse_auto_dup(body, 0, uses1);  // Auto-dup VAR(0) for X₁ uses
+      body = parse_auto_dup(body, 0, uses1);
     }
     // Generate: DynDup(lab, val, λ_.λ_.body)
     u64 loc0     = heap_alloc(1);
