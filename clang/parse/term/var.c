@@ -12,7 +12,7 @@ fn Term parse_term_var(PState *s, u32 depth) {
   if (idx < 0) {
     char name_buf[16];
     nick_to_str(nam, name_buf, sizeof(name_buf));
-    fprintf(stderr, "\033[1;31mPARSE_ERROR\033[0m\n");
+    fprintf(stderr, "\033[1;31mPARSE_ERROR\033[0m (%s:%d:%d)\n", s->file, s->line, s->col);
     fprintf(stderr, "- undefined variable '%s'\n", name_buf);
     exit(1);
   }
