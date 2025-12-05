@@ -1,7 +1,12 @@
 // Collapse step: recursively searches for SUPs and lifts them to the top level.
-// Stops when it finds a SUP (doesn't descend into SUP branches).
+// Uses direct SUP lifting for efficiency.
+// Stops when it finds a SUP at the top (doesn't descend into SUP branches).
 // Also strips RED nodes (keeping only RHS) and propagates ERA upward.
 // Used by flatten() for lazy BFS enumeration of superposition branches.
+//
+// IMPORTANT: When a SUP is found and lifted, we return immediately WITHOUT
+// recursively collapsing the new branches. This is critical for handling
+// infinite structures - flatten() will iterate lazily via BFS.
 
 fn Term collapse_step(Term term) {
   term = wnf(term);
@@ -13,7 +18,8 @@ fn Term collapse_step(Term term) {
     case NUM:
     case CO0:
     case CO1:
-    case NAM: {
+    case NAM:
+    case DRY: {
       return term;
     }
 
@@ -24,7 +30,7 @@ fn Term collapse_step(Term term) {
 
     case RED: {
       // For RED, collapse the rhs (g) side only
-      u64  loc = term_val(term);
+      u64 loc = term_val(term);
       return collapse_step(HEAP[loc + 1]);
     }
 
@@ -46,20 +52,39 @@ fn Term collapse_step(Term term) {
         return term;
       }
 
-      // SUP in body - lift it using template+inject
-      // Build template: λfV. (λk. fV)
-      u64 outer_loc = heap_alloc(1);
-      HEAP[lam_loc]   = term_new(0, VAR, 0, outer_loc);  // inner body = Var fV
-      Term inner_lam  = term_new(0, LAM, 0, lam_loc);    // inner lambda (Lam k ...)
-      HEAP[outer_loc] = inner_lam;                       // outer body = inner lambda
-      Term template   = term_new(0, LAM, 0, outer_loc);  // outer lambda (Lam fV ...)
+      // SUP in body - lift it: λx. &L{a, b} → &L{λx.a, λx.b}
+      // We need to handle variable binding correctly using dup_lam pattern
+      u32  lab     = term_ext(body_collapsed);
+      u64  sup_loc = term_val(body_collapsed);
+      Term sup_a   = HEAP[sup_loc + 0];
+      Term sup_b   = HEAP[sup_loc + 1];
 
-      Term args[1] = { body_collapsed };
-      return collapse_inject(template, args, 1);
+      // Allocate: 2 lambda bodies (for fresh binders)
+      u64 loc0 = heap_alloc(1);
+      u64 loc1 = heap_alloc(1);
+
+      // Put SUP branches in new lambda bodies
+      HEAP[loc0] = sup_a;
+      HEAP[loc1] = sup_b;
+
+      // Create SUP of variables for the original binder
+      // Any reference to lam_loc will be substituted with this SUP
+      Term var0 = term_new_var(loc0);
+      Term var1 = term_new_var(loc1);
+      Term binder_sup = term_new_sup(lab, var0, var1);
+
+      // Substitute original binder with SUP of new variables
+      heap_subst_var(lam_loc, binder_sup);
+
+      // Create two lambdas with fresh binders - DON'T recursively collapse!
+      Term lam0 = term_new(0, LAM, 0, loc0);
+      Term lam1 = term_new(0, LAM, 0, loc1);
+
+      return term_new_sup(lab, lam0, lam1);
     }
 
     default: {
-      // Generic case for APP, MAT, CTR, etc.
+      // Generic case for APP, MAT, CTR, OP2, USE, etc.
       u32 ari = term_arity(term);
       u64 loc = term_val(term);
 
@@ -67,56 +92,60 @@ fn Term collapse_step(Term term) {
         return term;
       }
 
-      // Recursively collapse each subterm, looking for SUPs
-      int  has_sup = 0;
-      Term subterms[16];
-      for (u32 i = 0; i < ari; i++) {
-        subterms[i] = collapse_step(HEAP[loc + i]);
-        HEAP[loc + i] = subterms[i];
-        if (term_tag(subterms[i]) == SUP) {
-          has_sup = 1;
-        }
-      }
+      // First pass: collapse all children and check for SUPs/ERAs
+      int  sup_idx = -1;  // Index of first SUP child (-1 if none)
+      Term children[16];
 
-      // ERA propagation: if any child is ERA, whole node is ERA
       for (u32 i = 0; i < ari; i++) {
-        if (term_tag(subterms[i]) == ERA) {
+        children[i] = collapse_step(HEAP[loc + i]);
+        HEAP[loc + i] = children[i];
+
+        // ERA propagation: if any child is ERA, whole node is ERA
+        if (term_tag(children[i]) == ERA) {
           return term_new_era();
         }
+
+        // Track first SUP
+        if (sup_idx < 0 && term_tag(children[i]) == SUP) {
+          sup_idx = i;
+        }
       }
 
-      if (!has_sup) {
-        // No SUPs found anywhere - term is fully collapsed
+      if (sup_idx < 0) {
+        // No SUPs found - term is fully collapsed
         return term;
       }
 
-      // Has SUP(s) - build template and inject
-      // Template: λv0. λv1. ... T(Var v0, Var v1, ...)
+      // Found SUP at index sup_idx - lift it directly
+      // T(..., &L{a,b}, ...) → &L{T(...,a,...), T(...,b,...)}
+      Term sup     = children[sup_idx];
+      u32  lab     = term_ext(sup);
+      u64  sup_loc = term_val(sup);
+      Term sup_a   = HEAP[sup_loc + 0];
+      Term sup_b   = HEAP[sup_loc + 1];
 
-      // Allocate lambda body locations
-      u64 lam_locs[16];
+      // Build two versions of the node
+      Term args0[16], args1[16];
+
       for (u32 i = 0; i < ari; i++) {
-        lam_locs[i] = heap_alloc(1);
+        if ((int)i == sup_idx) {
+          // This is the SUP position - substitute branches directly
+          args0[i] = sup_a;
+          args1[i] = sup_b;
+        } else {
+          // Clone other children with the SUP's label
+          Copy c = term_clone(lab, children[i]);
+          args0[i] = c.k0;
+          args1[i] = c.k1;
+        }
       }
 
-      // Build vars pointing to their respective lambda body locations
-      Term vars[16];
-      for (u32 i = 0; i < ari; i++) {
-        vars[i] = term_new(0, VAR, 0, lam_locs[i]);
-      }
+      // DON'T recursively collapse - just build the nodes and return SUP
+      // flatten() will iterate lazily
+      Term node0 = term_new_(term_tag(term), term_ext(term), ari, args0);
+      Term node1 = term_new_(term_tag(term), term_ext(term), ari, args1);
 
-      // Build the node with vars
-      Term node = term_new_(term_tag(term), term_ext(term), ari, vars);
-
-      // Build nested lambdas from inside out
-      Term body = node;
-      for (int32_t i = ari - 1; i >= 0; i--) {
-        HEAP[lam_locs[i]] = body;
-        body = term_new(0, LAM, 0, lam_locs[i]);
-      }
-      Term template = body;
-
-      return collapse_inject(template, subterms, ari);
+      return term_new_sup(lab, node0, node1);
     }
   }
 }
