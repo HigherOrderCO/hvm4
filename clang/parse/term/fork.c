@@ -19,11 +19,15 @@ fn Term parse_term_fork(PState *s, int dyn, Term lab_term, u32 lab, u32 depth) {
     parse_bind_push(names[i], depth + i * d + 1, dyn ? 0xFFFFFF : lab, 0);
   }
   u32 body_depth = depth + n * d;
+  // Optional &₀: before left branch
+  parse_match(s, "&₀:");
   PARSE_FORK_SIDE = 0;
   Term left = parse_term(s, body_depth);
   parse_skip(s);
   parse_consume(s, ";");
   parse_skip(s);
+  // Optional &₁: before right branch
+  parse_match(s, "&₁:");
   PARSE_FORK_SIDE = 1;
   Term right = parse_term(s, body_depth);
   PARSE_FORK_SIDE = -1;
