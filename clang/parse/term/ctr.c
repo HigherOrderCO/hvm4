@@ -7,16 +7,11 @@ fn Term parse_term_ctr(PState *s, u32 depth) {
   parse_skip(s);
   if (parse_match(s, "{")) {
     parse_skip(s);
-    if (parse_peek(s) != '}') {
-      while (1) {
-        args[cnt++] = parse_term(s, depth);
-        parse_skip(s);
-        if (parse_peek(s) == ',') {
-          parse_consume(s, ",");
-          continue;
-        }
-        break;
-      }
+    while (parse_peek(s) != '}') {
+      args[cnt++] = parse_term(s, depth);
+      parse_skip(s);
+      parse_match(s, ",");  // optional comma
+      parse_skip(s);
     }
     parse_consume(s, "}");
   }

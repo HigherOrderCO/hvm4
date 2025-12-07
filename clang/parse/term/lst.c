@@ -5,10 +5,11 @@ fn Term parse_term_lst(PState *s, u32 depth) {
   parse_skip(s);
   if (parse_peek(s) == ']') { parse_advance(s); return term_new_ctr(NAM_NIL, 0, 0); }
   Term es[4096]; u32 n = 0;
-  while (1) {
+  while (parse_peek(s) != ']') {
     es[n++] = parse_term(s, depth);
     parse_skip(s);
-    if (!parse_match(s, ",")) break;
+    parse_match(s, ",");  // optional comma
+    parse_skip(s);
   }
   parse_consume(s, "]");
   Term t = term_new_ctr(NAM_NIL, 0, 0);

@@ -50,15 +50,12 @@ fn Term parse_term_app_prec(Term f, PState *s, u32 depth, int min_prec) {
     Term arg = parse_term(s, depth);
     f = term_new_app(f, arg);
     parse_skip(s);
-    if (parse_peek(s) == ',') {
-      parse_consume(s, ",");
-      continue;
-    }
+    parse_match(s, ",");  // optional comma
+    parse_skip(s);
     if (parse_peek(s) == ')') {
       parse_consume(s, ")");
       break;
     }
-    parse_error(s, "',' or ')'", parse_peek(s));
   }
   return parse_term_app_prec(f, s, depth, min_prec);
 }

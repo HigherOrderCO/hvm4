@@ -8,13 +8,14 @@ fn Term parse_term_uns(PState *s, u32 depth) {
   parse_skip(s);
   u32 nam_f = parse_name(s);
   parse_skip(s);
-  parse_consume(s, ",");
+  parse_match(s, ",");  // optional comma
   parse_skip(s);
   u32 nam_v = parse_name(s);
   parse_skip(s);
+  parse_match(s, ",");  // optional trailing comma
   parse_consume(s, "}");
   parse_skip(s);
-  parse_match(s, ";");
+  parse_match(s, ";");  // optional semicolon
   parse_skip(s);
 
   parse_bind_push(nam_f, depth, 0, 0);

@@ -8,8 +8,10 @@ fn Term parse_term_fork(PState *s, int dyn, Term lab_term, u32 lab, u32 depth) {
   u32 n = 0;
   names[n++] = parse_name(s);
   parse_skip(s);
-  while (parse_match(s, ",")) {
+  while (parse_peek(s) != '{') {
+    parse_match(s, ",");  // optional comma between names
     parse_skip(s);
+    if (parse_peek(s) == '{') break;
     names[n++] = parse_name(s);
     parse_skip(s);
   }
@@ -24,7 +26,7 @@ fn Term parse_term_fork(PState *s, int dyn, Term lab_term, u32 lab, u32 depth) {
   PARSE_FORK_SIDE = 0;
   Term left = parse_term(s, body_depth);
   parse_skip(s);
-  parse_consume(s, ";");
+  parse_match(s, ";");  // optional semicolon between branches
   parse_skip(s);
   // Optional &₁: before right branch
   parse_match(s, "&₁:");
@@ -32,7 +34,7 @@ fn Term parse_term_fork(PState *s, int dyn, Term lab_term, u32 lab, u32 depth) {
   Term right = parse_term(s, body_depth);
   PARSE_FORK_SIDE = -1;
   parse_skip(s);
-  parse_match(s, ";");
+  parse_match(s, ";");  // optional trailing semicolon
   parse_consume(s, "}");
   for (u32 i = 0; i < n; i++) {
     parse_bind_pop();
