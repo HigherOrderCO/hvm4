@@ -94,9 +94,23 @@ run_tests() {
         ;;
     esac
 
-    actual="$("$bin" "$tmp" $flags)"
+    actual="$("$bin" "$tmp" $flags 2>&1)"
 
-    if [ "$actual" = "$expected" ]; then
+    # Strip ANSI escape codes for comparison
+    actual_clean="$(echo "$actual" | sed 's/\x1b\[[0-9;]*m//g')"
+    expected_clean="$(echo "$expected" | sed 's/\x1b\[[0-9;]*m//g')"
+
+    # For PARSE_ERROR tests, just check if output starts with PARSE_ERROR
+    if [ "$expected_clean" = "PARSE_ERROR" ]; then
+      if [[ "$actual_clean" == PARSE_ERROR* ]]; then
+        echo "[PASS] $name"
+      else
+        echo "[FAIL] $name"
+        echo "  expected: PARSE_ERROR"
+        echo "  detected: $actual_clean"
+        status=1
+      fi
+    elif [ "$actual_clean" = "$expected_clean" ]; then
       echo "[PASS] $name"
     else
       echo "[FAIL] $name"

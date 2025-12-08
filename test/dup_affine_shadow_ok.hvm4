@@ -1,0 +1,3 @@
+// OK: bare x falls through to cloned outer x
+@main = (λ&x. !x&L=x; (x₀ + x))(5)
+//10

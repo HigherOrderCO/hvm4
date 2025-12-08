@@ -1,0 +1,3 @@
+// OK: each side used once
+@main = (λx. !d&L=x; (d₀ + d₁))(5)
+//10

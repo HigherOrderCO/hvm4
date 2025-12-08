@@ -1,0 +1,3 @@
+// Error: d₁ used twice without cloning
+@main = λx. !d&L=x; (d₁ + d₁)
+//PARSE_ERROR
