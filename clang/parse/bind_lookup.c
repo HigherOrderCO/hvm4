@@ -13,18 +13,18 @@ fn void parse_bind_lookup(u32 name, u32 depth, int *idx, u32 *lab, u32 *cloned) 
   *cloned = 0;
 }
 
-// Increment per-side use count for cloned dup bindings
-fn void parse_bind_inc_side(u32 name, int side) {
+// Increment per-side use count and return previous count
+fn u32 parse_bind_inc_side(u32 name, int side) {
   for (int i = PARSE_BINDS_LEN - 1; i >= 0; i--) {
     if (PARSE_BINDS[i].name == name) {
       if (side == 0) {
-        PARSE_BINDS[i].uses0++;
+        return PARSE_BINDS[i].uses0++;
       } else {
-        PARSE_BINDS[i].uses1++;
+        return PARSE_BINDS[i].uses1++;
       }
-      return;
     }
   }
+  return 0;
 }
 
 fn u32 parse_bind_get_uses(void) {
