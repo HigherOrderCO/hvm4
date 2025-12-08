@@ -32,9 +32,22 @@ fn Term parse_term_var(PState *s, u32 depth) {
       parse_error_var("- dynamic dup variable '%s' requires subscript ₀ or ₁\n", nam);
     }
   }
-  // Track per-side uses for cloned dup bindings
-  if (cloned && side >= 0) {
-    parse_bind_inc_side(nam, side);
+  // If dup-bound variable used without subscript (and not in fork mode),
+  // try to find an outer non-dup binding with capacity
+  if (lab != 0 && side == -1) {
+    if (parse_bind_lookup_skip_dup(nam, depth, &idx, &lab, &cloned)) {
+      // Found outer binding with capacity - use it as VAR
+      return term_new(0, VAR, lab, (u32)idx);
+    } else {
+      parse_error_var("- dup variable '%s' requires subscript ₀ or ₁\n", nam);
+    }
+  }
+  // Track per-side uses for dup bindings and check affinity
+  if (lab != 0 && side >= 0) {
+    u32 prev_uses = parse_bind_inc_side(nam, side);
+    if (!cloned && prev_uses > 0) {
+      parse_error_affine_side(nam, side, prev_uses + 1);
+    }
   }
   u32 val = (u32)idx;
   u8  tag = (side == 0) ? CO0 : (side == 1) ? CO1 : VAR;

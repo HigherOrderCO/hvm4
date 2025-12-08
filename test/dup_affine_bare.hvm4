@@ -1,0 +1,3 @@
+// Error: bare x refers to dup binding, but outer x has no capacity
+@main = λx. !x&L=x; (x₀ + x)
+//PARSE_ERROR
