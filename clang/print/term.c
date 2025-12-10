@@ -72,6 +72,10 @@ fn void print_term_go(FILE *f, Term term, u32 depth) {
       fputs("&{}", f);
       break;
     }
+    case ANY: {
+      fputc('*', f);
+      break;
+    }
     case CO0:
     case CO1: {
       // Unresolved copy reference (unscoped variable)
@@ -207,6 +211,24 @@ fn void print_term_go(FILE *f, Term term, u32 depth) {
       fputc('(', f);
       print_term_go(f, HEAP[loc + 0], depth);
       fputs(" === ", f);
+      print_term_go(f, HEAP[loc + 1], depth);
+      fputc(')', f);
+      break;
+    }
+    case AND: {
+      u32 loc = term_val(term);
+      fputc('(', f);
+      print_term_go(f, HEAP[loc + 0], depth);
+      fputs(" .&. ", f);
+      print_term_go(f, HEAP[loc + 1], depth);
+      fputc(')', f);
+      break;
+    }
+    case OR: {
+      u32 loc = term_val(term);
+      fputc('(', f);
+      print_term_go(f, HEAP[loc + 0], depth);
+      fputs(" .|. ", f);
       print_term_go(f, HEAP[loc + 1], depth);
       fputc(')', f);
       break;

@@ -464,6 +464,8 @@ Term ::=
   | Num  integer                                  -- number literal
   | Op2  "(" Term Oper Term ")"                   -- binary operation
   | Eql  "(" Term "==" Term ")"                   -- equality test
+  | And  "(" Term ".&." Term ")"                  -- short-circuit AND
+  | Or   "(" Term ".|." Term ")"                  -- short-circuit OR
   | DSu  "&" "(" Term ")" "{" Term "," Term "}"   -- dynamic superposition
   | DDu  "!" Name "&" "(" Term ")" "=" Term ";" Term  -- dynamic duplication
   | Red  Term "~>" Term                           -- reduction
@@ -708,11 +710,11 @@ y ← ^Z
 
 (#K{a, ...} == #K{b, ...})
 -------------------------- EQL-CTR
-(a == b) & ...
+(a == b) .&. ...
 
 (λ{#K: h1; m1} == λ{#K: h2; m2})
 -------------------------------- EQL-MAT
-(h1 == h2) & (m1 == m2)
+(h1 == h2) .&. (m1 == m2)
 
 (λ{f} == λ{g})
 -------------- EQL-USE
@@ -724,11 +726,59 @@ y ← ^Z
 
 (^(f x) == ^(g y))
 ------------------ EQL-DRY
-(f == g) & (x == y)
+(f == g) .&. (x == y)
 
 (_ == _)
 -------- EQL-OTHER
 #0
+```
+
+#### Native AND (Short-Circuit)
+
+Lazy boolean AND. Strict on first argument only; if first is `#0`, returns `#0`
+without evaluating second. Otherwise returns second argument.
+
+```
+(&{} .&. b)
+----------- AND-ERA
+&{}
+
+(&L{a, b} .&. c)
+-------------------------- AND-SUP
+! C &L= c;
+&L{(a .&. C₀), (b .&. C₁)}
+
+(#0 .&. b)
+---------- AND-ZERO
+#0
+
+(#n .&. b)   [n ≠ 0]
+-------------------- AND-NONZERO
+b
+```
+
+#### Native OR (Short-Circuit)
+
+Lazy boolean OR. Strict on first argument only; if first is non-zero, returns
+`#1` without evaluating second. Otherwise returns second argument.
+
+```
+(&{} .|. b)
+----------- OR-ERA
+&{}
+
+(&L{a, b} .|. c)
+-------------------------- OR-SUP
+! C &L= c;
+&L{(a .|. C₀), (b .|. C₁)}
+
+(#0 .|. b)
+---------- OR-ZERO
+b
+
+(#n .|. b)   [n ≠ 0]
+-------------------- OR-NONZERO
+#1
 ```
 
 #### Dynamic Superposition

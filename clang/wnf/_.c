@@ -104,6 +104,8 @@ __attribute__((hot)) fn Term wnf(Term term) {
           case C00 ... C16:
           case OP2:
           case EQL:
+          case AND:
+          case OR:
           case DSU:
           case DDU:
           case RED: {
@@ -119,7 +121,8 @@ __attribute__((hot)) fn Term wnf(Term term) {
             goto enter;
           }
           case REF:
-          case ERA: {
+          case ERA:
+          case ANY: {
             next = book;
             goto enter;
           }
@@ -135,6 +138,22 @@ __attribute__((hot)) fn Term wnf(Term term) {
       }
 
       case EQL: {
+        u32  loc = term_val(next);
+        Term a   = HEAP[loc + 0];
+        STACK[S_POS++] = next;
+        next = a;
+        goto enter;
+      }
+
+      case AND: {
+        u32  loc = term_val(next);
+        Term a   = HEAP[loc + 0];
+        STACK[S_POS++] = next;
+        next = a;
+        goto enter;
+      }
+
+      case OR: {
         u32  loc = term_val(next);
         Term a   = HEAP[loc + 0];
         STACK[S_POS++] = next;
@@ -512,6 +531,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
               goto enter;
             }
             case ERA:
+            case ANY:
             case NUM: {
               whnf = wnf_dup_node(lab, loc, side, whnf);
               continue;
@@ -616,6 +636,10 @@ __attribute__((hot)) fn Term wnf(Term term) {
               whnf = wnf_eql_era_l();
               continue;
             }
+            case ANY: {
+              whnf = wnf_eql_any_l();
+              continue;
+            }
             case SUP: {
               next = wnf_eql_sup_l(whnf, b);
               goto enter;
@@ -643,6 +667,10 @@ __attribute__((hot)) fn Term wnf(Term term) {
               whnf = wnf_eql_era_r();
               continue;
             }
+            case ANY: {
+              whnf = wnf_eql_any_r();
+              continue;
+            }
             case SUP: {
               next = wnf_eql_sup_r(a, whnf);
               goto enter;
@@ -652,6 +680,11 @@ __attribute__((hot)) fn Term wnf(Term term) {
               u8 a_tag = term_tag(a);
               u8 b_tag = term_tag(whnf);
 
+              // ANY === x or x === ANY
+              if (a_tag == ANY || b_tag == ANY) {
+                whnf = wnf_eql_any_r();
+                continue;
+              }
               // NUM === NUM
               if (a_tag == NUM && b_tag == NUM) {
                 whnf = wnf_eql_num(a, whnf);
@@ -746,6 +779,60 @@ __attribute__((hot)) fn Term wnf(Term term) {
             }
             default: {
               whnf = term_new_ddu(whnf, val, bod);
+              continue;
+            }
+          }
+        }
+
+        // -----------------------------------------------------------------------
+        // AND frame: (□ .&. b) - we reduced a, dispatch
+        // -----------------------------------------------------------------------
+        case AND: {
+          u32  loc = term_val(frame);
+          Term b   = HEAP[loc + 1];
+
+          switch (term_tag(whnf)) {
+            case ERA: {
+              whnf = wnf_and_era();
+              continue;
+            }
+            case SUP: {
+              next = wnf_and_sup(whnf, b);
+              goto enter;
+            }
+            case NUM: {
+              next = wnf_and_num(whnf, b);
+              goto enter;
+            }
+            default: {
+              whnf = term_new_and(whnf, b);
+              continue;
+            }
+          }
+        }
+
+        // -----------------------------------------------------------------------
+        // OR frame: (□ .|. b) - we reduced a, dispatch
+        // -----------------------------------------------------------------------
+        case OR: {
+          u32  loc = term_val(frame);
+          Term b   = HEAP[loc + 1];
+
+          switch (term_tag(whnf)) {
+            case ERA: {
+              whnf = wnf_or_era();
+              continue;
+            }
+            case SUP: {
+              next = wnf_or_sup(whnf, b);
+              goto enter;
+            }
+            case NUM: {
+              next = wnf_or_num(whnf, b);
+              goto enter;
+            }
+            default: {
+              whnf = term_new_or(whnf, b);
               continue;
             }
           }

@@ -1,0 +1,158 @@
+@def = λa.a
+
+@ref = @def(λa.a)
+
+@stuck = λa.^a
+
+@dry = ^(λa.a λb.b)
+
+@era = &{}
+
+@sup = &L{λa.a, λb.b}
+
+@dyn_sup = λL.&(L){λa.a, λb.b}
+
+@dup = λa.!A&L=a ; 1
+
+@co0 = λa.!A&L=a ; A₀
+
+@co1 = λa.!A&L=a ; A₁
+
+@ctr = #Ctor{}
+
+@nest_ctr = #Ctor{#Another{}}
+
+@match_ctr = λ{
+  #Z: #Z{}    ; 
+  #S: λs.#Z{} ;
+}
+
+@num_mat = λ{
+  0: 0 ; 
+  1: 1 ;
+  λx.x
+}
+
+@use = λ{λx.x}
+
+@era2 = λ{}
+
+@lam = λx.x
+
+@paren = (λx.x) // NOT an APP
+
+@app = λx.x(2)
+
+@num = 102
+
+@plus = 10 + 10
+@sub  = 10 - 10
+@mul  = 10 * 10
+@mod  = 10 % 10
+@and  = 1 && 1
+@or   = 1 || 1
+@xor  = 1 ^ 1
+@lshf = 1 << 1
+@rshf = 1 >> 1
+@lt   = 2 < 1
+@lte  = 2 <= 1
+@gt   = 1 > 1
+@gte  = 2 >= 1
+@eq   = 1 == 1
+@neq  = 1 != 1
+
+@strct_eq = λx.x === λa.a
+
+@red = λx.x ~> λy.y
+
+@unsc = !${a, b} ; λa.2
+
+// sugars
+
+@autodup_lam = λ&x.x + x
+
+@dup_lam = λx&L.x₀ + x₁
+
+@dyn_dup_lam = λL.λx&(L).x₀ + x₁
+
+@dyn_auto_dup_lam = λ&x&.x₀ * x₁
+
+@multi_arg_lam = λx,y,z.y
+
+@multi_arg_autodup_lam = λ&x,&y,z.y * y + x + x
+
+@multi_arg_inl_dup = λx&L,y&D.x₀ + x₁ + y₀ + y₁
+
+@list_mat = λ{
+  []: #Z{} ; 
+  <>: λh.λt. #Z{} ; 
+}
+
+@def_case = λ{
+  0n: #Z{} ; 
+  λsuc.suc
+}
+
+@nat_mat = λ{
+  0n: #Z{} ; 
+  2n+: λs.#S{s} ;
+}
+
+@frk = &Lλx{x ; x}
+
+@frk_dyn = λL.&(L) λx,y {x ; y}
+
+@frk_brnch = &L λx,y {
+  &₀: x ; 
+  &₁: y ;
+}
+
+@frk_brnch_dyn = λL. &(L) λx, y {
+  &₀: x ;
+  &₁: y ;
+}
+
+@let = 
+  !x = 1 ; 
+  x
+
+@stri_let = 
+  !!x = λx.x(1)
+  x
+
+@dup_let = λx.
+  !&y = x * 2 ;
+  y + y
+
+@stri_dup_let = λx.
+  !!&y = x * 2 ; 
+  y * y
+
+@dup_auto_lab = λx.
+  !X& = x ;
+  X₀ + X₁
+
+@auto_dup_auto_lab = λx.
+  !&X& = x ; 
+  X₀ + X₁
+
+@auto_dup_static_lab = λx.
+  !&X&L = x ; 
+  X₀
+
+@auto_dup_dyn_lab = λL.λx.
+  !&X&(L) = x ;
+  X₁
+
+@list_lit = [1, 2, 3]
+
+@list_cons = 1 <> 2 <> []
+
+@string_lit = "hello"
+
+@nat_lit = 4n
+
+@suc_lit = 1n+ 3n
+
+@main = 1
+//1

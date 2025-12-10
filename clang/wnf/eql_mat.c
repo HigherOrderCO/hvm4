@@ -22,8 +22,8 @@ fn Term wnf_eql_mat(Term a, Term b) {
   Term bh    = HEAP[b_loc + 0];
   Term bm    = HEAP[b_loc + 1];
 
-  // (ah === bh) & (am === bm)
+  // (ah === bh) .&. (am === bm)
   Term eq_h = term_new_eql(ah, bh);
   Term eq_m = term_new_eql(am, bm);
-  return term_new_op2(OP_MUL, eq_h, eq_m);
+  return term_new_and(eq_h, eq_m);
 }

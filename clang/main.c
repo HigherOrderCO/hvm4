@@ -17,7 +17,7 @@
 // Lazy collapse + extraction via BFS traversal.
 // Integrates collapse_step to handle infinite structures without stack overflow.
 
-fn void flatten(Term term, int limit) {
+fn void flatten(Term term, int limit, int show_itrs) {
   // BFS queue
   Term *queue = malloc(sizeof(Term) * 1024 * 1024);
   int   head  = 0;
@@ -41,6 +41,9 @@ fn void flatten(Term term, int limit) {
       // Non-SUP, non-ERA result - normalize and print
       t = snf(t, 0);
       print_term(t);
+      if (show_itrs) {
+        printf(" \033[2m#%llu\033[0m", ITRS);
+      }
       printf("\n");
       count++;
     }
@@ -171,7 +174,7 @@ int main(int argc, char **argv) {
 
   if (opts.do_collapse) {
     // Lazy collapse + flatten: handles infinite structures
-    flatten(main_ref, opts.collapse_limit);
+    flatten(main_ref, opts.collapse_limit, opts.stats);
   } else {
     // Standard evaluation to strong normal form
     Term result = snf(main_ref, 0);

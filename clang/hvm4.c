@@ -68,7 +68,10 @@ typedef struct {
 #define DDU 35  // DDu(lab, val, bod): strict on lab, creates DUP
 #define RED 36  // Red(f, g): guarded reduction, f ~> g
 #define EQL 37  // Eql(a, b): structural equality, strict on a, then b
-#define UNS 38  // Unscoped(xf, xv): binds an unscoped lambda/var pair to xf and xv
+#define AND 38  // And(a, b): short-circuit AND, strict on a only
+#define OR  39  // Or(a, b): short-circuit OR, strict on a only
+#define UNS 40  // Unscoped(xf, xv): binds an unscoped lambda/var pair to xf and xv
+#define ANY 41  // Any: wildcard that duplicates itself and equals anything
 
 // Stack frame tags (0x40+) - internal to WNF, encode reduction state
 // Note: regular term tags (APP, MAT, USE, CO0, CO1, OP2, DSU, DDU) also used as frames
@@ -226,6 +229,7 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (CO0), 1 =
 #include "term/new/var.c"
 #include "term/new/ref.c"
 #include "term/new/era.c"
+#include "term/new/any.c"
 #include "term/new/co0.c"
 #include "term/new/co1.c"
 #include "term/new/lam.c"
@@ -241,6 +245,8 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (CO0), 1 =
 #include "term/new/ddu.c"
 #include "term/new/red.c"
 #include "term/new/eql.c"
+#include "term/new/and.c"
+#include "term/new/or.c"
 #include "term/new/uns.c"
 #include "term/new/num.c"
 #include "term/clone.c"
@@ -320,6 +326,7 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (CO0), 1 =
 #include "parse/term/str.c"
 #include "parse/term/lst.c"
 #include "parse/term/var.c"
+#include "parse/term/any.c"
 #include "parse/term/args.c"
 #include "parse/term/opr.c"
 #include "parse/term/app.c"
@@ -379,6 +386,7 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (CO0), 1 =
 #include "wnf/app_red_use_sup.c"
 #include "wnf/app_red_use_val.c"
 #include "wnf/eql_era.c"
+#include "wnf/eql_any.c"
 #include "wnf/eql_sup.c"
 #include "wnf/eql_num.c"
 #include "wnf/eql_lam.c"
@@ -387,6 +395,12 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (CO0), 1 =
 #include "wnf/eql_use.c"
 #include "wnf/eql_nam.c"
 #include "wnf/eql_dry.c"
+#include "wnf/and_era.c"
+#include "wnf/and_sup.c"
+#include "wnf/and_num.c"
+#include "wnf/or_era.c"
+#include "wnf/or_sup.c"
+#include "wnf/or_num.c"
 #include "wnf/uns.c"
 #include "wnf/_.c"
 

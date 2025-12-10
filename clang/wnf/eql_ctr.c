@@ -27,12 +27,12 @@ fn Term wnf_eql_ctr(Term a, Term b) {
   u32  a_loc = term_val(a);
   u32  b_loc = term_val(b);
 
-  // Build AND chain: (a0 === b0) && (a1 === b1) && ...
-  // Use multiplication for boolean AND
+  // Build AND chain: (a0 === b0) .&. (a1 === b1) .&. ...
+  // Use short-circuit AND for lazy evaluation
   Term result = term_new_eql(HEAP[a_loc], HEAP[b_loc]);
   for (u32 i = 1; i < arity; i++) {
     Term eq_i = term_new_eql(HEAP[a_loc + i], HEAP[b_loc + i]);
-    result = term_new_op2(OP_MUL, result, eq_i);
+    result = term_new_and(result, eq_i);
   }
   return result;
 }

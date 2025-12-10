@@ -10,8 +10,8 @@ fn Term wnf_eql_dry(Term a, Term b) {
   Term bf    = HEAP[b_loc + 0];
   Term bx    = HEAP[b_loc + 1];
 
-  // (af === bf) & (ax === bx)
+  // (af === bf) .&. (ax === bx)
   Term eq_f = term_new_eql(af, bf);
   Term eq_x = term_new_eql(ax, bx);
-  return term_new_op2(OP_MUL, eq_f, eq_x);
+  return term_new_and(eq_f, eq_x);
 }

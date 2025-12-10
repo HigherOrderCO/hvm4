@@ -27,6 +27,18 @@ fn Term parse_term_app_prec(Term f, PState *s, u32 depth, int min_prec) {
     rhs = parse_term_app_prec(rhs, s, depth, 4);  // same precedence as ==
     return parse_term_app_prec(term_new_eql(f, rhs), s, depth, min_prec);
   }
+  // Short-circuit AND: .&.
+  if (parse_match(s, ".&.")) {
+    Term rhs = parse_term_atom(s, depth);
+    rhs = parse_term_app_prec(rhs, s, depth, 2);  // same precedence as &&
+    return parse_term_app_prec(term_new_and(f, rhs), s, depth, min_prec);
+  }
+  // Short-circuit OR: .|.
+  if (parse_match(s, ".|.")) {
+    Term rhs = parse_term_atom(s, depth);
+    rhs = parse_term_app_prec(rhs, s, depth, 1);  // same precedence as ||
+    return parse_term_app_prec(term_new_or(f, rhs), s, depth, min_prec);
+  }
   // Precedence climbing for infix operators
   int op = parse_term_opr_peek(s);
   if (op >= 0 && parse_term_opr_prec(op) >= min_prec) {
