@@ -13,8 +13,9 @@ fn Term parse_term_atom(PState *s, u32 depth) {
     parse_term_lam, // λ[&]x.f or λ[&]x&L.f λ[&]x&(L).f where [&] means optional
     
     // !..
-    parse_term_uns, // ! ${f, v};body
-    parse_term_dup, // ![&]x = val or !![&]x =val or ![&]x&[L] = v; f or ![&]x&(L) = v; f 
+    parse_term_uns, // !${f, v};body
+    parse_term_let, // ![&]x = val or !![&]x =val
+    parse_term_dup, // ![&]x&[L] = v; f or ![&]x&(L) = v; f 
 
     // &..
     parse_term_frk, // &Lλx,y{A[x,y];B[x,y]} or &Lλx,y{&₀: A[x,y]; &₁: B[x,y]}
