@@ -1,4 +1,5 @@
-fn Term parse_term_era(PState *s, u32 depth) {
+fn Term parse_term_era(Term f, PState *s, u32 depth, int min_prec) {
+  (void)f; (void)min_prec;
   parse_skip(s);
   if (parse_match(s, "λ") || parse_match(s, "&")) {
     parse_skip(s);

@@ -141,6 +141,9 @@ typedef struct {
 #define EXT_MASK 0xFFFFFF
 #define VAL_MASK 0xFFFFFFFF
 
+// Sentinel for "no term" in parse_choice
+#define NONE ((Term)-1)
+
 // Capacities
 // ==========
 
@@ -331,6 +334,13 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (CO0), 1 =
 #include "parse/term/any.c"
 #include "parse/term/args.c"
 #include "parse/term/opr.c"
+#include "parse/term/postfix/red.c"
+#include "parse/term/postfix/cons.c"
+#include "parse/term/postfix/eql.c"
+#include "parse/term/postfix/and.c"
+#include "parse/term/postfix/or.c"
+#include "parse/term/postfix/opr.c"
+#include "parse/term/postfix/call.c"
 #include "parse/term/app.c"
 #include "parse/term/_.c"
 #include "parse/include.c"

@@ -1,4 +1,5 @@
-fn Term parse_term_chr(PState *s, u32 depth) {
+fn Term parse_term_chr(Term f, PState *s, u32 depth, int min_prec) {
+  (void)f; (void)min_prec;
   if (!parse_match(s, "\'")) return 0;
   // parse_advance(s);
   u32 c;

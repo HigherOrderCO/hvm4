@@ -1,6 +1,7 @@
 fn Term parse_term(PState *s, u32 depth);
 
-fn Term parse_term_str(PState *s, u32 depth) {
+fn Term parse_term_str(Term f, PState *s, u32 depth, int min_prec) {
+  (void)f; (void)min_prec;
   // parse_advance(s);
   if (!parse_match(s, "\"")) return 0;
   Term t = term_new_ctr(NAM_NIL, 0, 0);

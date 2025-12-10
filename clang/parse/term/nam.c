@@ -1,7 +1,8 @@
 fn Term parse_term(PState *s, u32 depth);
 
 // ^name or ^(f x)
-fn Term parse_term_nam(PState *s, u32 depth) {
+fn Term parse_term_nam(Term f, PState *s, u32 depth, int min_prec) {
+  (void)f; (void)min_prec;
   if (!parse_match(s, "^")) return 0;
   parse_skip(s);
   if (parse_peek(s) == '(') {

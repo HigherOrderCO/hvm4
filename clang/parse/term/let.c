@@ -1,6 +1,7 @@
 fn Term parse_term(PState *s, u32 depth);
 
-fn Term parse_term_let(PState *s, u32 depth) {
+fn Term parse_term_let(Term f, PState *s, u32 depth, int min_prec) {
+  (void)f; (void)min_prec;
   if (!parse_match(s, "!")) return 0;
   parse_skip(s);
   // Check for !!x = val or !!&x = val (strict let, optionally cloned)

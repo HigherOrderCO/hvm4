@@ -1,26 +1,28 @@
 fn Term parse_term(PState *s, u32 depth);
 fn Term parse_term_lam_go(PState *s, u32 depth);
-fn Term parse_term_lam_simple(PState *s, u32 depth);
-fn Term parse_term_lam_dupped(PState *s, u32 depth);
+fn Term parse_term_lam_simple(Term f, PState *s, u32 depth, int min_prec);
+fn Term parse_term_lam_dupped(Term f, PState *s, u32 depth, int min_prec);
 
-fn Term parse_term_lam(PState *s, u32 depth) {
+fn Term parse_term_lam(Term f, PState *s, u32 depth, int min_prec) {
+  (void)f; (void)min_prec;
   // λ[&]x.f
-  // λ[&]x&L.f 
+  // λ[&]x&L.f
   // λ[&]x&(L).f
   if (!parse_match(s, "λ")) return 0; //
-  return parse_term_lam_go(s,depth);
+  return parse_term_lam_go(s, depth);
 }
 
 fn Term parse_term_lam_go(PState *s, u32 depth) {
-  TermParser atoms[] = {
+  Parser atoms[] = {
     parse_term_lam_dupped, // λ[&]x&[L|(L)].f
     parse_term_lam_simple, // λ[&]x.f
     NULL
   };
-  return parse_choice(s, depth, atoms);
+  return parse_choice(NONE, s, depth, 0, atoms);
 }
 
-fn Term parse_term_lam_simple(PState *s, u32 depth) {
+fn Term parse_term_lam_simple(Term f, PState *s, u32 depth, int min_prec) {
+  (void)f; (void)min_prec;
   parse_skip(s);
   // Parse argument: [&]name[&[label|(label)]]
   u32 cloned = parse_match(s, "&");
@@ -48,7 +50,8 @@ fn Term parse_term_lam_simple(PState *s, u32 depth) {
   return term_new(0, LAM, depth, loc);
 }
 
-fn Term parse_term_lam_dupped(PState *s, u32 depth) {
+fn Term parse_term_lam_dupped(Term f, PState *s, u32 depth, int min_prec) {
+  (void)f; (void)min_prec;
   // Inline dup: λx&L or λx&(L) or λx&
   parse_skip(s);
   // Parse argument: [&]name[&[label|(label)]]

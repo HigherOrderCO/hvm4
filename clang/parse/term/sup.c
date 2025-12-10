@@ -1,6 +1,7 @@
 fn Term parse_term(PState *s, u32 depth);
 
-fn Term parse_term_sup(PState *s, u32 depth) {
+fn Term parse_term_sup(Term f, PState *s, u32 depth, int min_prec) {
+  (void)f; (void)min_prec;
   // Regular sup: &L{A,B} or &(L){A,B} or &L{A B}
   if (!parse_match(s, "&")) return 0;
   int  dyn      = parse_peek(s) == '(';

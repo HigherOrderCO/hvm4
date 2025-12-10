@@ -4,7 +4,8 @@ fn void parse_mat_tag_ctr(PState *s, u8 *tag, u32 *ext);
 fn void parse_mat_tag_nil(PState *s, u8 *tag, u32 *ext);
 fn void parse_mat_tag_con(PState *s, u8 *tag, u32 *ext);
 
-fn Term parse_term_mat(PState *s, u32 depth) {
+fn Term parse_term_mat(Term f, PState *s, u32 depth, int min_prec) {
+  (void)f; (void)min_prec;
   if (!parse_match(s, "λ")) return 0;
   parse_skip(s);
   if (!parse_match(s, "{")) return 0;

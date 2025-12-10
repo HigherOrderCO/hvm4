@@ -1,6 +1,7 @@
 fn Term parse_term(PState *s, u32 depth);
 
-fn Term parse_term_nat(PState *s, u32 depth) {
+fn Term parse_term_nat(Term f, PState *s, u32 depth, int min_prec) {
+  (void)f; (void)min_prec;
   if (!isdigit(parse_peek(s))) return 0;
 
   u32 sav = s->pos;

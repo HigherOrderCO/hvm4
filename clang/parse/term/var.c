@@ -1,4 +1,5 @@
-fn Term parse_term_var(PState *s, u32 depth) {
+fn Term parse_term_var(Term f, PState *s, u32 depth, int min_prec) {
+  (void)f; (void)min_prec;
   parse_skip(s);
   u32 nam = parse_name(s);
   int idx;

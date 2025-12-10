@@ -1,6 +1,7 @@
 fn Term parse_term(PState *s, u32 depth);
 
-fn Term parse_term_lst(PState *s, u32 depth) {
+fn Term parse_term_lst(Term f, PState *s, u32 depth, int min_prec) {
+  (void)f; (void)min_prec;
   // parse_advance(s);
   if (!parse_match(s, "[")) return 0;
   parse_skip(s);
