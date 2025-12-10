@@ -23,10 +23,16 @@ fn Term parse_term_var(PState *s, u32 depth) {
   // From body: outer = idx, inner = idx - 1
   if (lab == 0xFFFFFF) {
     if (side == 0) {
-      parse_bind_inc_side(nam, 0);  // Track X₀ uses for cloned dynamic dup
+      u32 prev_uses = parse_bind_inc_side(nam, 0);
+      if (!cloned && prev_uses > 0) {
+        parse_error(s, PERR_AFFINE_SIDE(nam, prev_uses + 1, side));
+      }
       return term_new(0, VAR, 0, (u32)idx);  // X₀ → outer lambda
     } else if (side == 1) {
-      parse_bind_inc_side(nam, 1);  // Track X₁ uses for cloned dynamic dup
+      u32 prev_uses = parse_bind_inc_side(nam, 1);
+      if (!cloned && prev_uses > 0) {
+        parse_error(s, PERR_AFFINE_SIDE(nam, prev_uses + 1, side));
+      }
       return term_new(0, VAR, 0, (u32)(idx - 1));  // X₁ → inner lambda
     } else {
       parse_error(s, PERR_DYN_DUP_REQUIRES_SUBSCRIPT(nam));
