@@ -3,7 +3,6 @@ fn Term parse_term_atom(PState *s, u32 depth) {
   parse_skip(s);
   u8 c = (u8)parse_peek(s);
 
-  // Fast dispatch on first byte for unambiguous prefixes
   switch (c) {
     case '&':  return parse_term_amp(s, depth);     // &{}, &Lλx{...}, &L{A,B}
     case 0xCE: return parse_term_lambda(s, depth);  // λ (UTF-8: CE BB)
@@ -21,7 +20,7 @@ fn Term parse_term_atom(PState *s, u32 depth) {
         TermParser alts[] = { parse_term_nat, parse_term_num, NULL };
         return parse_choice(s, depth, alts);
       }
-      return parse_term_var(s, depth);  // identifier
+      return parse_term_var(s, depth);
   }
 }
 
