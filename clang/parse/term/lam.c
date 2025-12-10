@@ -3,15 +3,10 @@ fn Term parse_term_lam_go(PState *s, u32 depth);
 fn Term parse_term_lam_simple(PState *s, u32 depth);
 fn Term parse_term_lam_dupped(PState *s, u32 depth);
 
-fn Term parse_term_lam(PState *s, u32 depth) {
-  //  λx.f
-  // λ&x.f
-  // λx&L.f 
-  // λ&x&L.f
-  // λx&(L).f
-  // λ&x&(L).f
-  if (!parse_match(s, "λ")) return 0; //
-  return parse_term_lam_go(s,depth);
+// Lam body: assumes λ already consumed
+// Parses: x.f, &x.f, x&L.f, &x&L.f, x&(L).f, &x&(L).f
+fn Term parse_term_lam_body(PState *s, u32 depth) {
+  return parse_term_lam_go(s, depth);
 }
 
 fn Term parse_term_lam_go(PState *s, u32 depth) {

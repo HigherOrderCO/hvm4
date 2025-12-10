@@ -1,10 +1,10 @@
 fn Term parse_term(PState *s, u32 depth);
 
-// Fork: &Lλx,y,z{A;B} or &(L)λx,y,z{A;B}
+// Fork body: assumes & already consumed
+// Parses: Lλx,y,z{A;B} or (L)λx,y,z{A;B}
 // Desugars to: λx&L.λy&L.λz&L.&L{A';B'}
 // where A' uses x₀,y₀,z₀ and B' uses x₁,y₁,z₁
-fn Term parse_term_fork(PState *s, u32 depth) {
-  if (!parse_match(s, "&")) return 0;
+fn Term parse_term_fork_body(PState *s, u32 depth) {
   int  dyn      = parse_peek(s) == '(';
   Term lab_term = 0;
   u32  lab      = 0;
