@@ -195,8 +195,8 @@ The minimal Interaction Calculus has just four rules. Two create computation
 **APP-LAM** - Application eliminates lambda:
 
 ```
-(λx.body arg)
-------------- APP-LAM
+(λx.body)(arg)
+-------------- APP-LAM
 x ← arg
 body
 ```
@@ -214,10 +214,10 @@ t
 **APP-SUP** - Application propagates through superposition:
 
 ```
-(&L{a, b} c)
+(&L{a, b})(c)
 ------------------- APP-SUP
 ! x &L= c;
-&L{(a x₀), (b x₁)}
+&L{a(x₀), b(x₁)}
 ```
 
 **DUP-LAM** - Duplication propagates through lambda:
