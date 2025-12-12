@@ -19,7 +19,7 @@
 
 fn void flatten(Term term, int limit, int show_itrs) {
   // BFS queue
-  Term *queue = malloc(sizeof(Term) * 1024 * 1024);
+  Term *queue = malloc(sizeof(Term) * 1024 * 1024 * 256);
   int   head  = 0;
   int   tail  = 0;
   int   count = 0;
