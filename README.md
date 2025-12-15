@@ -1,6 +1,6 @@
 # HVM4
 
-HVM4 is a runtime for the [Interaction Calculus](https://github.com/VictorTaelin/InteractionCalculus).
+HVM4 is a runtime for the [Interaction Calculus](https://github.com/VictorTaelin/Interaction-Calculus).
 
 **hi! this is a work in progress; you shouldn't be here**
 
