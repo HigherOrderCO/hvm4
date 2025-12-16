@@ -1,0 +1,44 @@
+// Bits:
+// data Bits {
+// #O{pred}
+// #I{pred}
+// #E{}
+// }
+
+// repetead app
+@rep = λ{
+  0: λf.λx.x ;
+  λn. λf.λx.!F&A=f ; F₀(@rep((n-1), F₁, x))
+}
+
+// squared app
+@sqr = λ{
+  0: λf.λx.x ;
+  λp.λf.λx.
+    !P&A = p ; 
+    !F&A = f ; 
+    !G&A = F₀;
+    @sqr((P₀ / 2), λk.F₁(G₀(k)), @rep((P₁ % 2), G₁, x))
+}
+
+// Bits (scott encoded)
+@o = λx,o,i,e.o(x)
+@i = λx,o,i,e.i(x)
+@e = λo,i,e.e
+
+// bit inc
+@inc = λx.λo.λi.λe.x(i, λop.o(@inc(op)), e)
+
+// creates an all-zero bits
+@zero = λ{
+  0: @e
+  λn. @o(@zero(n-1))
+}
+
+@bits_to_u32 = λxs. xs(λp0.(2 * @bits_to_u32(p0) + 0))(λp1.(2 * @bits_to_u32(p1) + 1))(0)
+
+// applies 'inc' N times to zero
+@main = @bits_to_u32(@sqr(123456789, λx.@inc(x), @zero(32)))
+
+
+

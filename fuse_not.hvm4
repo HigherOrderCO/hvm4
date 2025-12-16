@@ -1,0 +1,20 @@
+
+@not = λb,f,t. b(t)(f)
+@true  = λt.λf.t
+@false = λt.λf.f
+
+@rep = λ{
+  0: λf.λx.x ;
+  λn. λf.λx.!F&A=f ; F₀(@rep((n-1), F₁, x))
+}
+
+@sqr = λ{
+  0: λf.λx.x ;
+  λp.λf.λx.
+    !P&A = p ; 
+    !F&A = f ; 
+    !G&A = F₀;
+    @sqr((P₀ / 2), λk.F₁(G₀(k)), @rep((P₁ % 2), G₁, x))
+}
+
+@main = @sqr(1234567, @not, @true)
