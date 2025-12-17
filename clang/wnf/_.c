@@ -4,6 +4,12 @@ __attribute__((hot)) fn Term wnf(Term term) {
   Term whnf;
 
   enter: {
+    // Check interaction limit for step-by-step mode
+    if (__builtin_expect(ITRS_LIMIT > 0 && ITRS >= ITRS_LIMIT, 0)) {
+      whnf = next;
+      goto apply;
+    }
+
     if (__builtin_expect(DEBUG, 0)) {
       printf("wnf_enter: ");
       print_term(next);

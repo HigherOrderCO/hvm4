@@ -1,5 +1,6 @@
 fn Term snf(Term term, u32 depth, int quote) {
   term = wnf(term);
+
   u32 ari = term_arity(term);
   if (ari == 0) {
     return term;

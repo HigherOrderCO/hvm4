@@ -76,11 +76,12 @@ typedef struct {
   int   do_collapse;
   int   collapse_limit;  // -1 means no limit
   int   debug;
+  int   step_by_step;    // -D: step-by-step reduction mode
   char *file;
 } CliOpts;
 
 fn CliOpts parse_opts(int argc, char **argv) {
-  CliOpts opts = { .stats = 0, .do_collapse = 0, .collapse_limit = -1, .debug = 0, .file = NULL };
+  CliOpts opts = { .stats = 0, .do_collapse = 0, .collapse_limit = -1, .debug = 0, .step_by_step = 0, .file = NULL };
 
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "-s") == 0) {
@@ -92,6 +93,8 @@ fn CliOpts parse_opts(int argc, char **argv) {
       }
     } else if (strcmp(argv[i], "-d") == 0) {
       opts.debug = 1;
+    } else if (strcmp(argv[i], "-D") == 0) {
+      opts.step_by_step = 1;
     } else if (argv[i][0] != '-') {
       if (opts.file == NULL) {
         opts.file = argv[i];
@@ -121,7 +124,7 @@ int main(int argc, char **argv) {
   CliOpts opts = parse_opts(argc, argv);
 
   if (opts.file == NULL) {
-    fprintf(stderr, "Usage: ./main <file.hvm4> [-s] [-C[N]]\n");
+    fprintf(stderr, "Usage: ./main <file.hvm4> [-s] [-C[N]] [-D]\n");
     return 1;
   }
 
@@ -188,9 +191,61 @@ int main(int argc, char **argv) {
 
   Term main_ref = term_new_ref(main_id);
 
+  // Set step-by-step mode
+  STEP_BY_STEP = opts.step_by_step;
+
   if (opts.do_collapse) {
     // Lazy collapse + flatten: handles infinite structures
     flatten(main_ref, opts.collapse_limit, opts.stats);
+  } else if (opts.step_by_step) {
+    // Step-by-step reduction: show each interaction
+    ROOT_LOC = heap_alloc(1);
+    HEAP[ROOT_LOC] = main_ref;
+
+    // Buffer for measuring line length
+    char *line_buf = NULL;
+    size_t line_cap = 0;
+
+    // Helper: print term to buffer, output it, then print dashes
+    #define PRINT_STEP(t) do { \
+      FILE *mem = open_memstream(&line_buf, &line_cap); \
+      print_term_to(mem, t); \
+      fclose(mem); \
+      /* Count visible width (UTF-8 aware) */ \
+      u32 width = 0; \
+      for (char *p = line_buf; *p; ) { \
+        u8 c = (u8)*p; \
+        if ((c & 0xC0) != 0x80) width++; /* count non-continuation bytes */ \
+        p++; \
+      } \
+      printf("%s\n", line_buf); \
+      for (u32 i = 0; i < width; i++) putchar('-'); \
+      putchar('\n'); \
+    } while(0)
+
+    // Print initial state
+    PRINT_STEP(HEAP[ROOT_LOC]);
+
+    // Step-by-step loop: each iteration does one interaction
+    while (1) {
+      u64 old_itrs = ITRS;
+      ITRS_LIMIT = ITRS + 1;
+      Term result = snf(HEAP[ROOT_LOC], 0, 0);
+      HEAP[ROOT_LOC] = result;
+      ITRS_LIMIT = 0;
+
+      if (ITRS == old_itrs) break;  // no interaction, done
+
+      // Print after this interaction
+      PRINT_STEP(HEAP[ROOT_LOC]);
+    }
+
+    // Print final result (no dashes after)
+    print_term(HEAP[ROOT_LOC]);
+    printf("\n");
+
+    free(line_buf);
+    #undef PRINT_STEP
   } else {
     // Standard evaluation to strong normal form
     Term result = snf(main_ref, 0, 0);  // quote=0: normal lambdas for printer

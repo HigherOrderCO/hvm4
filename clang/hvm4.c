@@ -168,6 +168,13 @@ static u32   S_POS = 1;
 static u64   ITRS  = 0;
 static int   DEBUG = 0;
 
+// Step-by-Step Globals
+// ====================
+
+static int   STEP_BY_STEP = 0;  // Enable step-by-step reduction mode
+static u64   ITRS_LIMIT   = 0;  // When >0, wnf stops when ITRS reaches this limit
+static u32   ROOT_LOC     = 0;  // Heap location of root term (for step-by-step printing)
+
 // Nick Alphabet
 // =============
 
