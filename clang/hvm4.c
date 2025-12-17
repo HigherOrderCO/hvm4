@@ -168,6 +168,16 @@ static u32   S_POS = 1;
 static u64   ITRS  = 0;
 static int   DEBUG = 0;
 
+// UNDUP Globals
+// =============
+
+#define UNDUP_0 1  // Skip side 0 (substitute with ERA)
+#define UNDUP_1 2  // Skip side 1 (substitute with ERA)
+#define EQL_EMIT_INC 1  // Emit INC wrappers in equality for recursive types
+
+static u8  *UNDUP;   // Label -> skip mode (0=normal, UNDUP_0, UNDUP_1)
+static u32 *PARENT;  // Location -> parent location (0 = root)
+
 // Nick Alphabet
 // =============
 
@@ -431,3 +441,4 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (CO0), 1 =
 
 #include "collapse/inject.c"
 #include "collapse/step.c"
+#include "collapse/flatten.c"

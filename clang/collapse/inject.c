@@ -7,6 +7,7 @@ fn Term collapse_inject(Term template, Term *args, u32 n_args) {
 
   Term head = wnf(args[0]);
 
+  // inject(tm, &A{x,y} <> xs) → ! TM &A = tm; ! XS &A = xs; &A{inject(TM₀, x <> XS₀), inject(TM₁, y <> XS₁)}
   if (term_tag(head) == SUP) {
     u32  lab     = term_ext(head);
     u64  sup_loc = term_val(head);
@@ -23,8 +24,18 @@ fn Term collapse_inject(Term template, Term *args, u32 n_args) {
     Term r1 = collapse_inject(T.k1, args1, n_args);
 
     return term_new_sup(lab, r0, r1);
-  } else {
-    Term applied = term_new_app(template, head);
-    return collapse_inject(applied, args + 1, n_args - 1);
   }
+
+  // inject(tm, ↑x <> xs) → ↑inject(tm, x <> xs)
+  if (term_tag(head) == INC) {
+    u64  inc_loc = term_val(head);
+    Term inner   = HEAP[inc_loc];
+    args[0] = inner;
+    Term result = collapse_inject(template, args, n_args);
+    return term_new_inc(result);
+  }
+
+  // inject(tm, x <> xs) → inject((tm x), xs)
+  Term applied = term_new_app(template, head);
+  return collapse_inject(applied, args + 1, n_args - 1);
 }

@@ -11,6 +11,13 @@ fn Term wnf_app_red_mat_sup(Term f, Term mat, Term sup) {
   u32  mat_nam = term_ext(mat);
   u32  sup_loc = term_val(sup);
   u32  lab     = term_ext(sup);
+  // UNDUP: skip to used branch
+  if (UNDUP && UNDUP[lab] == UNDUP_0) {
+    return term_new_app(term_new_red(f, mat), HEAP[sup_loc + 1]);
+  }
+  if (UNDUP && UNDUP[lab] == UNDUP_1) {
+    return term_new_app(term_new_red(f, mat), HEAP[sup_loc + 0]);
+  }
   Term h       = HEAP[mat_loc + 0];
   Term m       = HEAP[mat_loc + 1];
   Term a       = HEAP[sup_loc + 0];

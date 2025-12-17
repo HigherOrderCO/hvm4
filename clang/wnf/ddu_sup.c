@@ -7,6 +7,13 @@ fn Term wnf_ddu_sup(Term lab_sup, Term val, Term bod) {
   ITRS++;
   u32  lab     = term_ext(lab_sup);
   u32  sup_loc = term_val(lab_sup);
+  // UNDUP: skip to used branch
+  if (UNDUP && UNDUP[lab] == UNDUP_0) {
+    return term_new_ddu(HEAP[sup_loc + 1], val, bod);
+  }
+  if (UNDUP && UNDUP[lab] == UNDUP_1) {
+    return term_new_ddu(HEAP[sup_loc + 0], val, bod);
+  }
   Copy V       = term_clone(lab, val);
   Copy B       = term_clone(lab, bod);
   Term dd0     = term_new_ddu(HEAP[sup_loc + 0], V.k0, B.k0);

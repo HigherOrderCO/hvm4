@@ -12,6 +12,21 @@ fn Term wnf_dup_sup(u32 lab, u32 loc, u8 side, Term sup) {
   ITRS++;
   u32 sup_loc = term_val(sup);
   u32 sup_lab = term_ext(sup);
+  // UNDUP optimization: skip duplication if one side is unused
+  if (UNDUP && UNDUP[lab] == UNDUP_0) {
+    if (lab == sup_lab) {
+      return heap_subst_cop(side, loc, term_new_era(), HEAP[sup_loc + 1]);
+    } else {
+      return heap_subst_cop(side, loc, term_new_era(), sup);
+    }
+  }
+  if (UNDUP && UNDUP[lab] == UNDUP_1) {
+    if (lab == sup_lab) {
+      return heap_subst_cop(side, loc, HEAP[sup_loc + 0], term_new_era());
+    } else {
+      return heap_subst_cop(side, loc, sup, term_new_era());
+    }
+  }
   if (lab == sup_lab) {
     Term tm0 = HEAP[sup_loc + 0];
     Term tm1 = HEAP[sup_loc + 1];

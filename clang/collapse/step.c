@@ -8,6 +8,55 @@
 // recursively collapsing the new branches. This is critical for handling
 // infinite structures - flatten() will iterate lazily via BFS.
 
+fn Term collapse_step(Term term);
+
+// Optimized collapse step with UNDUP optimization.
+// Traverses PARENT chain to find SUPs with ERA siblings, sets UNDUP,
+// calls collapse_step, then clears UNDUP by traversing again.
+fn Term collapse_step_opt(u32 loc) {
+  // Traverse PARENT chain and mark UNDUP for SUPs with ERA siblings
+  u32 cur = loc;
+  while (cur != 0 && PARENT[cur] != 0) {
+    u32 parent_loc = PARENT[cur];
+    Term parent = HEAP[parent_loc];
+
+    if (term_tag(parent) == SUP) {
+      u32 sup_loc = term_val(parent);
+      u32 lab = term_ext(parent);
+
+      if (cur == sup_loc + 0 && term_tag(HEAP[sup_loc + 1]) == ERA) {
+        UNDUP[lab] = UNDUP_1;
+      } else if (cur == sup_loc + 1 && term_tag(HEAP[sup_loc + 0]) == ERA) {
+        UNDUP[lab] = UNDUP_0;
+      }
+    }
+
+    cur = parent_loc;
+  }
+
+  Term result = collapse_step(HEAP[loc]);
+
+  // Clear UNDUP by traversing again
+  cur = loc;
+  while (cur != 0 && PARENT[cur] != 0) {
+    u32 parent_loc = PARENT[cur];
+    Term parent = HEAP[parent_loc];
+
+    if (term_tag(parent) == SUP) {
+      u32 sup_loc = term_val(parent);
+      u32 lab = term_ext(parent);
+
+      if (term_tag(HEAP[sup_loc + 0]) == ERA || term_tag(HEAP[sup_loc + 1]) == ERA) {
+        UNDUP[lab] = 0;
+      }
+    }
+
+    cur = parent_loc;
+  }
+
+  return result;
+}
+
 fn Term collapse_step(Term term) {
   term = wnf(term);
 
@@ -23,13 +72,27 @@ fn Term collapse_step(Term term) {
     }
 
     case SUP: {
-      // Found a SUP - return it immediately, don't descend into branches
+      u32 lab = term_ext(term);
+      u32 loc = term_val(term);
+      // UNDUP: if this SUP has UNDUP set, return the live side
+      if (UNDUP && UNDUP[lab]) {
+        if (UNDUP[lab] == UNDUP_0) {
+          return collapse_step(HEAP[loc + 1]); // Skip side 0
+        } else {
+          return collapse_step(HEAP[loc + 0]); // Skip side 1
+        }
+      }
+      // Found a SUP - return it for flatten to handle
       return term;
     }
 
     case INC: {
-      // INC: just return as-is, let flatten() handle the priority adjustment
-      // Don't lift SUPs through INCs here - that's handled by the flatten loop
+      u64  loc = term_val(term);
+      Term chi = collapse_step(HEAP[loc]);
+      HEAP[loc] = chi;
+      if (term_tag(chi) == ERA) {
+        return term_new_era();
+      }
       return term;
     }
 

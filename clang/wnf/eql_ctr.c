@@ -29,17 +29,26 @@ fn Term wnf_eql_ctr(Term a, Term b) {
   u32  a_loc = term_val(a);
   u32  b_loc = term_val(b);
 
-  // SUC (1n+): recursive natural - wrap in INC for priority
+  // SUC (1n+): recursive natural - wrap in INC for priority (if enabled)
   if (a_ext == NAM_SUC && arity == 1) {
     Term eq = term_new_eql(HEAP[a_loc], HEAP[b_loc]);
+    #if EQL_EMIT_INC
     return term_new_inc(eq);
+    #else
+    return eq;
+    #endif
   }
 
-  // CON (<>): recursive list - wrap tail and whole in INC
+  // CON (<>): recursive list - wrap tail and whole in INC (if enabled)
   if (a_ext == NAM_CON && arity == 2) {
     Term eq_h = term_new_eql(HEAP[a_loc], HEAP[b_loc]);
+    #if EQL_EMIT_INC
     Term eq_t = term_new_inc(term_new_eql(HEAP[a_loc + 1], HEAP[b_loc + 1]));
     return term_new_inc(term_new_and(eq_h, eq_t));
+    #else
+    Term eq_t = term_new_eql(HEAP[a_loc + 1], HEAP[b_loc + 1]);
+    return term_new_and(eq_h, eq_t);
+    #endif
   }
 
   // Other constructors: no INC, just AND chain

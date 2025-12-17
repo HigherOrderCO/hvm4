@@ -8,6 +8,13 @@ fn Term wnf_app_sup(Term app, Term sup) {
   u32  sup_loc = term_val(sup);
   u32  lab     = term_ext(sup);
   Term arg     = HEAP[app_loc + 1];
+  // UNDUP: skip to used branch
+  if (UNDUP && UNDUP[lab] == UNDUP_0) {
+    return term_new_app(HEAP[sup_loc + 1], arg);
+  }
+  if (UNDUP && UNDUP[lab] == UNDUP_1) {
+    return term_new_app(HEAP[sup_loc + 0], arg);
+  }
   Term tm1     = HEAP[sup_loc + 1];
   u64  loc     = heap_alloc(3);
   HEAP[loc + 2] = arg;

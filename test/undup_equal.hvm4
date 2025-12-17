@@ -1,0 +1,7 @@
+// NOTE: in this test, performance should be > 100m interactions/s.
+// smaller than that implies the UNDUP optimization is quadratic.
+@X    = λ&L. &(L){ 0n, 1n+@X(L+1) }
+@Y    = λ&f. f(@Y(f))
+@when = λ{[]: λx.x; <>: λ{0: λt. &{}; 1: λt,x. @when(t, x)}}
+@main = @when([@X(1) === 5000n], [@X(1)])
+//[5000n] #<200000

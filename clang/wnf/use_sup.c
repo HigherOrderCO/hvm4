@@ -8,6 +8,13 @@ fn Term wnf_use_sup(Term use, Term sup) {
   Term f       = HEAP[use_loc];
   u32  lab     = term_ext(sup);
   u32  sup_loc = term_val(sup);
+  // UNDUP: skip to used branch
+  if (UNDUP && UNDUP[lab] == UNDUP_0) {
+    return term_new_app(use, HEAP[sup_loc + 1]);
+  }
+  if (UNDUP && UNDUP[lab] == UNDUP_1) {
+    return term_new_app(use, HEAP[sup_loc + 0]);
+  }
   Copy F       = term_clone(lab, f);
   Term use0    = term_new_use(F.k0);
   Term use1    = term_new_use(F.k1);

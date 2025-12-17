@@ -9,6 +9,13 @@ fn Term wnf_app_red_use_sup(Term f, Term use, Term sup) {
   u32  use_loc = term_val(use);
   u32  sup_loc = term_val(sup);
   u32  lab     = term_ext(sup);
+  // UNDUP: skip to used branch
+  if (UNDUP && UNDUP[lab] == UNDUP_0) {
+    return term_new_app(term_new_red(f, use), HEAP[sup_loc + 1]);
+  }
+  if (UNDUP && UNDUP[lab] == UNDUP_1) {
+    return term_new_app(term_new_red(f, use), HEAP[sup_loc + 0]);
+  }
   Term g       = HEAP[use_loc];
   Term a       = HEAP[sup_loc + 0];
   Term b       = HEAP[sup_loc + 1];

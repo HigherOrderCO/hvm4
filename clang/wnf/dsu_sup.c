@@ -7,6 +7,13 @@ fn Term wnf_dsu_sup(Term lab_sup, Term a, Term b) {
   ITRS++;
   u32  lab     = term_ext(lab_sup);
   u32  sup_loc = term_val(lab_sup);
+  // UNDUP: skip to used branch
+  if (UNDUP && UNDUP[lab] == UNDUP_0) {
+    return term_new_dsu(HEAP[sup_loc + 1], a, b);
+  }
+  if (UNDUP && UNDUP[lab] == UNDUP_1) {
+    return term_new_dsu(HEAP[sup_loc + 0], a, b);
+  }
   Copy A       = term_clone(lab, a);
   Copy B       = term_clone(lab, b);
   Term ds0     = term_new_dsu(HEAP[sup_loc + 0], A.k0, B.k0);

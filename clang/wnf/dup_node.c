@@ -7,6 +7,13 @@
 // X₁ ← #K{A₁,B₁,...}
 fn Term wnf_dup_node(u32 lab, u32 loc, u8 side, Term term) {
   ITRS++;
+  // UNDUP optimization: skip duplication if one side is unused
+  if (UNDUP && UNDUP[lab] == UNDUP_0) {
+    return heap_subst_cop(side, loc, term_new_era(), term);
+  }
+  if (UNDUP && UNDUP[lab] == UNDUP_1) {
+    return heap_subst_cop(side, loc, term, term_new_era());
+  }
   u32 ari = term_arity(term);
   if (ari == 0) {
     heap_subst_var(loc, term);

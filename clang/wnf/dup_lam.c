@@ -6,6 +6,13 @@
 // ! G &L = f
 fn Term wnf_dup_lam(u32 lab, u32 loc, u8 side, Term lam) {
   ITRS++;
+  // UNDUP optimization: skip duplication if one side is unused
+  if (UNDUP && UNDUP[lab] == UNDUP_0) {
+    return heap_subst_cop(side, loc, term_new_era(), lam);
+  }
+  if (UNDUP && UNDUP[lab] == UNDUP_1) {
+    return heap_subst_cop(side, loc, lam, term_new_era());
+  }
   u32  lam_loc = term_val(lam);
   Term bod     = HEAP[lam_loc];
   u64  a       = heap_alloc(5);

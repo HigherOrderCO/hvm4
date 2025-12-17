@@ -8,6 +8,13 @@ fn Term wnf_app_red_sup(Term f, Term sup, Term arg) {
   ITRS++;
   u32  sup_loc = term_val(sup);
   u32  lab     = term_ext(sup);
+  // UNDUP: skip to used branch
+  if (UNDUP && UNDUP[lab] == UNDUP_0) {
+    return term_new_app(term_new_red(f, HEAP[sup_loc + 1]), arg);
+  }
+  if (UNDUP && UNDUP[lab] == UNDUP_1) {
+    return term_new_app(term_new_red(f, HEAP[sup_loc + 0]), arg);
+  }
   Term x       = HEAP[sup_loc + 0];
   Term y       = HEAP[sup_loc + 1];
   Copy F       = term_clone(lab, f);

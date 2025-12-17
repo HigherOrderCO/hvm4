@@ -6,6 +6,13 @@ fn Term wnf_or_sup(Term sup, Term b) {
   ITRS++;
   u32  lab = term_ext(sup);
   u32  loc = term_val(sup);
+  // UNDUP: skip to used branch
+  if (UNDUP && UNDUP[lab] == UNDUP_0) {
+    return term_new_or(HEAP[loc + 1], b);
+  }
+  if (UNDUP && UNDUP[lab] == UNDUP_1) {
+    return term_new_or(HEAP[loc + 0], b);
+  }
   Term a0  = HEAP[loc + 0];
   Term a1  = HEAP[loc + 1];
   u64  dup_loc = heap_alloc(2);
