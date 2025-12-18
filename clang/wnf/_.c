@@ -368,11 +368,8 @@ __attribute__((hot)) fn Term wnf(Term term) {
               goto enter;
             }
             case RED: {
-              // (mat (g ~> h)): drop g, reduce (mat h)
-              u32  red_loc = term_val(whnf);
-              Term h = HEAP[red_loc + 1];
               STACK[S_POS++] = mat;
-              next = h;
+              next = wnf_mat_red(whnf);
               goto enter;
             }
             case CO0:
@@ -414,11 +411,8 @@ __attribute__((hot)) fn Term wnf(Term term) {
               goto enter;
             }
             case RED: {
-              // (swi (g ~> h)): drop g, reduce (swi h)
-              u32  red_loc = term_val(whnf);
-              Term h = HEAP[red_loc + 1];
               STACK[S_POS++] = mat;
-              next = h;
+              next = wnf_swi_red(whnf);
               goto enter;
             }
             case CO0:
@@ -531,11 +525,8 @@ __attribute__((hot)) fn Term wnf(Term term) {
               goto enter;
             }
             case RED: {
-              // (use (g ~> h)): drop g, reduce (use h)
-              u32  red_loc = term_val(whnf);
-              Term h = HEAP[red_loc + 1];
               STACK[S_POS++] = use;
-              next = h;
+              next = wnf_use_red(whnf);
               goto enter;
             }
             default: {
@@ -702,11 +693,8 @@ __attribute__((hot)) fn Term wnf(Term term) {
               goto enter;
             }
             case RED: {
-              // (x op (f ~> g)): drop f, reduce (x op g)
-              u32  red_loc = term_val(whnf);
-              Term g = HEAP[red_loc + 1];
               STACK[S_POS++] = frame;
-              next = g;
+              next = wnf_op2_num_red(whnf);
               goto enter;
             }
             case INC: {
@@ -833,9 +821,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
               // NAM or VAR compared with anything else: stuck
               // (can't determine equality with free/bound variable)
               if (a_tag == NAM || b_tag == NAM || a_tag == VAR || b_tag == VAR) {
-                HEAP[loc + 0] = a;
-                HEAP[loc + 1] = whnf;
-                whnf = term_new(0, EQL, 0, loc);
+                whnf = wnf_eql_stuck(loc, a, whnf);
                 continue;
               }
               // Otherwise: not equal
