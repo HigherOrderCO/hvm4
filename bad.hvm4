@@ -1,0 +1,4 @@
+@main = λk.
+  ! F = λx;
+  ! K &L = k;
+  #Tup{x, F, K₀, K₁, λv.v}

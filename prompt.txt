@@ -55,13 +55,13 @@ fine and expected. Just make sure we avoid loops (i.e., a DUP can only be
 discovered once) and we're fine. Remember that we key DUP's by the location
 of the dup'd expression, which is what is stored on CO0/CO1 variables.
 
-Finally, we must modify snf to NOT substitute bound vars by names.
+Finally, we must modify snf() to NOT substitute bound vars by names.
 
 Note that many tests will break after this change. DO NOT RUN THEM.
 
-Just implement this change and assert the test above prints as expected.
+Just implement this change and assert the test ABOVE prints as expected.
 
-Then come back to me for next steps.
+Then, come back to me for next steps.
 
 TASK 2:
 

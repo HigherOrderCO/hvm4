@@ -6,9 +6,8 @@ fn Term snf(Term term, u32 depth) {
   }
   u64 loc = term_val(term);
   if (term_tag(term) == LAM) {
+    // Do NOT substitute VAR with NAM - the printer handles naming globally
     Term body = HEAP[loc];
-    // ^(depth+1) for stuck variable
-    heap_subst_var(loc, term_new_nam(depth + 1));
     HEAP[loc] = snf(body, depth + 1);
   } else if (term_tag(term) == DRY) {
     HEAP[loc + 0] = snf(HEAP[loc + 0], depth);
