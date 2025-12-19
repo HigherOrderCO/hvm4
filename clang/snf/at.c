@@ -52,23 +52,23 @@ fn Term snf_at(u32 loc, u32 depth, u8 quoted, SnfState *st) {
     return term;
   }
 
-  if (quoted && tag == CLO) {
-    u32 clo_loc = term_val(term);
+  if (quoted && tag == DUP) {
+    u32 dup_term_loc = term_val(term);
     u32 lab     = term_ext(term);
-    Term val    = HEAP[clo_loc + 0];
-    Term bod    = HEAP[clo_loc + 1];
+    Term val    = HEAP[dup_term_loc + 0];
+    Term bod    = HEAP[dup_term_loc + 1];
     u32 level   = depth + 1;
     Term bj0    = term_new(0, BJ0, lab, level);
     Term bj1    = term_new(0, BJ1, lab, level);
-    HEAP[clo_loc + 0] = term_new_sup(lab, bj0, bj1);
+    HEAP[dup_term_loc + 0] = term_new_sup(lab, bj0, bj1);
     u64 val_loc = heap_alloc(1);
     HEAP[val_loc] = val;
     snf_at((u32)val_loc, depth, quoted, st);
-    snf_at(clo_loc + 1, depth + 1, quoted, st);
+    snf_at(dup_term_loc + 1, depth + 1, quoted, st);
     u64 out_loc = heap_alloc(2);
     HEAP[out_loc + 0] = HEAP[val_loc];
-    HEAP[out_loc + 1] = HEAP[clo_loc + 1];
-    term = term_new(0, CLO, lab, out_loc);
+    HEAP[out_loc + 1] = HEAP[dup_term_loc + 1];
+    term = term_new(0, DUP, lab, out_loc);
     HEAP[loc] = term;
     return term;
   }

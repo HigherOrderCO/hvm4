@@ -1,9 +1,9 @@
 fn Term parse_term(PState *s, u32 depth);
 
-// Helper: parse CLO after & is consumed. Expects: [(label)] [=val;] body
+// Helper: parse DUP term after & is consumed. Expects: [(label)] [=val;] body
 // If val is provided (non-zero loc), uses it; otherwise parses "= val;" from input.
 // For λx&L.F sugar, val_loc points to where VAR(0) should go.
-fn Term parse_clo_body(PState *s, u32 nam, u32 cloned, u32 depth, u64 val_loc) {
+fn Term parse_dup_body(PState *s, u32 nam, u32 cloned, u32 depth, u64 val_loc) {
   parse_skip(s);
   // Dynamic label: (expr)
   if (parse_peek(s) == '(') {
@@ -76,18 +76,18 @@ fn Term parse_clo_body(PState *s, u32 nam, u32 cloned, u32 depth, u64 val_loc) {
   }
   HEAP[loc + 1] = body;
   parse_bind_pop();
-  return term_new(0, CLO, lab, loc);
+  return term_new(0, DUP, lab, loc);
 }
 
-fn Term parse_term_clo(PState *s, u32 depth) {
+fn Term parse_term_dup(PState *s, u32 depth) {
   parse_skip(s);
   // Check for !!x = val or !!&x = val (strict let, optionally cloned)
   int strict = parse_match(s, "!");
   parse_skip(s);
   // Check for cloned: & comes BEFORE name
   // Cloned let: ! &x = val
-  // Cloned CLO: ! &X &L = val  or  ! &X &(L) = val
-  // Regular CLO: !x& = val
+  // Cloned DUP term: ! &X &L = val  or  ! &X &(L) = val
+  // Regular DUP term: !x& = val
   u32 cloned = 0;
   if (parse_peek(s) == '&') {
     parse_advance(s);  // consume &
@@ -152,10 +152,10 @@ fn Term parse_term_clo(PState *s, u32 depth) {
     }
     return term_new_app(lam, val);
   }
-  // Regular CLO: !x&label = val; body  or  !x& = val; body (auto-label)
-  // Cloned CLO: !&X &label = val; body  or  !&X & = val; body (auto-label)
-  // Dynamic CLO: !x&(lab) = val; body  (lab is an expression)
-  // Cloned Dynamic CLO: !&X &(lab) = val; body
+  // Regular DUP term: !x&label = val; body  or  !x& = val; body (auto-label)
+  // Cloned DUP term: !&X &label = val; body  or  !&X & = val; body (auto-label)
+  // Dynamic DUP term: !x&(lab) = val; body  (lab is an expression)
+  // Cloned Dynamic DUP term: !&X &(lab) = val; body
   parse_consume(s, "&");
-  return parse_clo_body(s, nam, cloned, depth, 0);
+  return parse_dup_body(s, nam, cloned, depth, 0);
 }

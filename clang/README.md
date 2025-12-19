@@ -14,7 +14,7 @@ form (WNF) evaluator with all interaction rules.
 ## Tag Encoding
 
 - DP0/DP1: Runtime dup copies (sides 0 and 1 of a DUP node)
-- CLO: Syntactic duplication binder (`!x&L = val; body`)
+- DUP: Dup term (syntactic binder `!x&L = val; body`)
 - C00...C16: Constructor tags encode arity directly (C00+n for n fields)
 - Names (variable, constructor, reference) use 6-char base64 strings encoded
   as 24-bit integers fitting in the EXT field
@@ -24,13 +24,13 @@ form (WNF) evaluator with all interaction rules.
 Unlike the Haskell version which uses IntMaps for 'dups' and 'subs', this
 implementation stores everything directly on the heap:
 
-- CLO terms (syntactic): stored inline as a 2-slot pair `[expr, body]` with
+- DUP terms (syntactic): stored inline as a 2-slot pair `[expr, body]` with
   label in `ext`.
 - DUP nodes (runtime): represented by DP0/DP1 terms that share an expr
   location (one heap slot). There is no dup body; the DUP node is the expr
   slot that holds the live duplication state (label stored in DP0/DP1's `ext` field).
 
-CLO evaluates to its body in WNF; duplication happens only when DP0/DP1 are forced.
+DUP terms evaluate to their body in WNF; duplication happens only when DP0/DP1 are forced.
 
 - Substitutions: Stored where the lambda body, or DUP node expr slot,
   was. When app_lam fires, the argument replaces the lambda body slot. The
@@ -43,7 +43,7 @@ Book terms (parsed definitions) use de Bruijn levels and are immutable:
   - BJV: ext = 0         ; val = bru_level
   - BJ_: ext = dup_label ; val = bru_level
   - LAM: ext = bru_level ; val = body_location
-  - CLO: ext = dup_label ; val = clo_location (expr, body)
+  - DUP: ext = dup_label ; val = dup_term_location (expr, body)
   - NAM: ext = name_id   ; val = 0  (literal ^name)
 Levels are 1-based from the definition root; level 0 denotes an unscoped var.
 
@@ -51,7 +51,7 @@ Runtime terms (after ALO allocation) use heap locations:
   - VAR : ext = 0         ; val = binding_lam_body_location
   - DP_ : ext = dup_label ; val = binding_dup_expr_location
   - LAM : ext = 0         ; val = body_location
-  - CLO : ext = dup_label ; val = clo_location (expr, body)
+  - DUP : ext = dup_label ; val = dup_term_location (expr, body)
 Quoted runtime terms (from `snf_at(..., quoted = 1)`) use the same representation
 as book terms (LAM.ext = level, BJV/BJ0/BJ1 levels).
 
@@ -64,7 +64,7 @@ into a single 64-bit heap word:
   - High 32 bits: bind list head (linked list of binder locations)
 
 The bind list maps de Bruijn levels to runtime heap locations of binding
-LAM/CLO nodes. When an ALO interaction occurs, one layer of the book term
+LAM/DUP terms. When an ALO interaction occurs, one layer of the book term
 is extracted and converted to a runtime term.
 ALO terms store the bind list length in `ext` to index levels directly.
 
@@ -105,16 +105,17 @@ The printer entry points are:
 
 `snf_at(loc, depth, quoted)` normalizes the heap term at `loc` to strong normal
 form. `snf(term, depth, quoted)` anchors `term` in the heap and calls `snf_at`.
-In quoted mode, LAM and CLO binders install **BJ* placeholders** by reusing the
+In quoted mode, LAM and DUP binders install **BJ* placeholders** by reusing the
 runtime substitution mechanism:
 
 - **LAM**: its body slot is marked with `BJV` carrying the binder level
   (`depth + 1`), then the body is normalized in-place. The returned LAM has
   `ext = depth + 1`, making quoted lambdas unambiguous (runtime lambdas always
   have `ext = 0`).
-- **CLO**: its expr slot is replaced with `&L{BJ0,BJ1}` at level `depth + 1`,
-  then the expr and body are normalized to build a quoted CLO node.
-- **DP0/DP1** (runtime mode): normalize the DUP node expr at its heap location so floating dups are reduced; a visited loc set avoids cycles.
+- **DUP** (dup term): its expr slot is replaced with `&L{BJ0,BJ1}` at level `depth + 1`,
+  then the expr and body are normalized to build a quoted DUP term.
+- **DP0/DP1** (runtime mode): normalize the DUP node expr at its heap
+  location so floating dups are reduced; a visited loc set avoids cycles.
 
 Any VAR/DP0/DP1 that escape scoping in quoted mode become BJ* at the current
 depth. This keeps book and quoted runtime terms structurally identical while
@@ -133,7 +134,7 @@ REDUCE phase: Push eliminators onto stack and descend into their targets
 
 APPLY phase: Pop frames and dispatch interactions based on WHNF result
 
-CLO and ALO don't push stack frames since they immediately trigger their
+DUP terms and ALO don't push stack frames since they immediately trigger their
 respective interactions without requiring sub-WNF results first.
 
 ## Internal-Only Constructs

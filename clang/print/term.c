@@ -1,6 +1,6 @@
 // Pretty-printer overview
-// - Runtime links: LAM/VAR and DP0/DP1 point to heap locations; CLO is a
-//   syntactic binder that decays to a DUP node (DP0/DP1 share its expr loc).
+// - Runtime links: LAM/VAR and DP0/DP1 point to heap locations; DUP is a
+//   syntactic binder; it yields a DUP node (DP0/DP1 share its expr loc).
 // - Book terms (inside ALO) are immutable and use BJV/BJ0/BJ1 de Bruijn levels.
 // - NAM is a literal stuck name (^x), unrelated to binders.
 // - Runtime printing assigns globally unique names to each LAM body location.
@@ -431,8 +431,8 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       fputc('}', f);
       break;
     }
-    case CLO: {
-      // CLO is a syntactic binder; runtime mode queues its DUP node and prints the body.
+    case DUP: {
+      // DUP term is a syntactic binder; runtime mode queues its DUP node and prints the body.
       u32 loc = term_val(term);
       if (quoted) {
         fputc('!', f);

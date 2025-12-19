@@ -48,14 +48,14 @@ the val() of the LAM Term - both coincide). That works because both the VAR and
 the LAM store that same location on the val() field of their Terms. Then, we
 just print the variable with that unique name, and the lambda with that name.
 
-As for dup families, since they *float* in the global scope, we must also
+As for dup nodes, since they *float* in the global scope, we must also
 *detect* them when we reach DP0/DP1 variables. DP0/DP1 share the same expr
 location (their val), which identifies the DUP node and is what we key names
-by. CLO is only a syntactic binder and does not share that location. Then, after
+by. The dup term is only a syntactic binder and does not share that location. Then, after
 a term is printed, we proceed to print all DUP nodes we discovered. Note that
 this might, then, cause new DUP nodes to be discovered, so we just print them
 later too, recursively. Just make sure we avoid loops (i.e., a DUP node can
-only be discovered once) and we're fine. Remember that we key dup families by
+only be discovered once) and we're fine. Remember that we key dup nodes by
 the expr location stored on DP0/DP1 variables.
 
 # Task 2: print ALO's correctly.
@@ -63,19 +63,19 @@ the expr location stored on DP0/DP1 variables.
 Finally, ALO is, currently, not fully printed. your goal is to also print ALO's
 correctly. to do so, include a new mode in the printer, named 'quoted', which
 prints book terms. remember that book terms are slightly different from runtime
-terms, since lams, BJV/BJ0/BJ1, and CLO are *quoted*, instead of *linked*.
+terms, since lams, BJV/BJ0/BJ1, and DUP are *quoted*, instead of *linked*.
 
 Book terms (parsed definitions) use de Bruijn levels and are immutable:
   - BJV: ext = 0         ; val = bru_level
   - BJ_: ext = dup_label ; val = bru_level
   - LAM: ext = bru_level ; val = body_location
-  - CLO: ext = dup_label ; val = clo_location (expr, body)
+  - DUP: ext = dup_label ; val = dup_term_location (expr, body)
 
 Runtime terms (after ALO allocation) use heap locations:
   - VAR : ext = 0         ; val = binding_lam_body_location
   - DP_ : ext = dup_label ; val = binding_dup_expr_location
   - LAM : ext = 0         ; val = body_location
-  - CLO : ext = dup_label ; val = clo_location (expr, body)
+  - DUP : ext = dup_label ; val = dup_term_location (expr, body)
 
 your goal is to print ALO's as @{term}, where 'term' is the immutable book term,
 with BJV/BJ0/BJ1 printed as their values on the alo_subst list, when

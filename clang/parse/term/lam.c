@@ -154,11 +154,11 @@ fn Term parse_term_lam(PState *s, u32 depth) {
       if (cloned && uses0 > 1) {
         body = parse_auto_dup(body, depth + 2, depth + 2, uses0, BJ0, lab);
       }
-      u64 clo_loc = heap_alloc(2);
-      HEAP[clo_loc + 0] = term_new(0, BJV, 0, depth + 1);
-      HEAP[clo_loc + 1] = body;
+      u64 dup_term_loc = heap_alloc(2);
+      HEAP[dup_term_loc + 0] = term_new(0, BJV, 0, depth + 1);
+      HEAP[dup_term_loc + 1] = body;
       u64 lam_loc = heap_alloc(1);
-      HEAP[lam_loc] = term_new(0, CLO, lab, clo_loc);
+      HEAP[lam_loc] = term_new(0, DUP, lab, dup_term_loc);
       return term_new(0, LAM, depth + 1, lam_loc);
     }
   }

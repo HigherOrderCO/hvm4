@@ -454,7 +454,7 @@ Term ::=
   | Dry  "^" "(" Term " " Term ")"                -- dry (stuck application)
   | Era  "&{}"                                    -- erasure
   | Sup  "&" Label "{" Term "," Term "}"          -- superposition
-  | Clo  "!" Name "&" Label "=" Term ";" Term     -- duplication binder (CLO)
+  | Dup  "!" Name "&" Label "=" Term ";" Term     -- duplication term
   | Ctr  "#" Name "{" Term,* "}"                  -- constructor
   | Mat  "λ" "{" "#" Name ":" Term ";" Term "}"   -- pattern match
   | Swi  "λ" "{" Num ":" Term ";" Term "}"        -- number switch
@@ -467,7 +467,7 @@ Term ::=
   | And  "(" Term ".&." Term ")"                  -- short-circuit AND
   | Or   "(" Term ".|." Term ")"                  -- short-circuit OR
   | DSu  "&" "(" Term ")" "{" Term "," Term "}"   -- dynamic superposition
-  | DDu  "!" Name "&" "(" Term ")" "=" Term ";" Term  -- dynamic duplication binder (CLO)
+  | DDu  "!" Name "&" "(" Term ")" "=" Term ";" Term  -- dynamic duplication term
   | Red  Term "~>" Term                           -- reduction
   | Inc  "↑" Term                                 -- priority wrapper (collapse)
   | Alo  "@" "{" Name,* "}" Term                  -- allocation
@@ -480,9 +480,9 @@ Oper  ::= "+" | "-" | "*" | "/" | "%" | "&&" | "||"
         | "<" | "<=" | ">" | ">="
 ```
 
-Implementation note: the syntactic duplication binder (`!`) is called a **CLO** term in
-the runtime. The runtime duplication process is a **DUP node**: DP0/DP1 terms that
-share an expr location (one heap slot) and carry the label in `ext`.
+Implementation note: the syntactic duplication binder (`!`) is a **DUP term**.
+The runtime duplication process is a **DUP node**: DP0/DP1 terms that share an
+expr location (one heap slot) and carry the label in `ext`.
 
 Variables are **affine**: they can occur at most once. Variables are **global**:
 they can occur anywhere in the program, not just inside the binding's scope.
@@ -922,7 +922,7 @@ s[n]₁
 λ{#K: @{s}h; @{s}m}
 
 @{s} ! x &L= v; t
------------------ ALO-CLO
+----------------- ALO-DUP
 X ← fresh
 ! X &L= @{s}v;
 @{X,s} t

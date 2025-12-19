@@ -4,7 +4,7 @@ fn Term parse_term_atom(PState *s, u32 depth) {
   if (parse_match(s, "λ")) {
     return parse_term_lam(s, depth);
   } else if (parse_match(s, "!")) {
-    return parse_term_clo(s, depth);
+    return parse_term_dup(s, depth);
   } else if (parse_match(s, "&")) {
     return parse_term_sup(s, depth);
   } else if (parse_match(s, "#")) {

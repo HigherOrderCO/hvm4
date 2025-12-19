@@ -1,9 +1,9 @@
-// Auto-dup: wraps a term with N uses of a variable in N-1 dups.
+// Auto-dup: wraps a term with N uses of a variable in N-1 dup terms.
 // Example: [x,x,x] becomes !d0&=x; !d1&=d0₁; [d0₀,d1₀,d1₁]
 //
 // Works for both BJV refs (let/lambda bindings) and BJ refs (dup bindings).
 // - Target is identified by tag + level (and ext for BJ mode).
-// - Outer refs (level > base depth) are shifted by n to account for new DUP families.
+// - Outer refs (level > base depth) are shifted by n to account for new dup terms.
 
 fn void auto_dup_go(u64 loc, u32 lvl, u32 base, u32 *use, u32 n, u32 lab, u8 tgt, u32 ext) {
   Term t = HEAP[loc];
@@ -31,7 +31,7 @@ fn void auto_dup_go(u64 loc, u32 lvl, u32 base, u32 *use, u32 n, u32 lab, u8 tgt
       auto_dup_go(vl, lvl, base, use, n, lab, tgt, ext);
       return;
     }
-    case CLO: {
+    case DUP: {
       auto_dup_go(vl + 0, lvl, base, use, n, lab, tgt, ext);
       auto_dup_go(vl + 1, lvl, base, use, n, lab, tgt, ext);
       return;
@@ -64,7 +64,7 @@ fn Term parse_auto_dup(Term body, u32 lvl, u32 base, u32 uses, u8 tgt, u32 ext) 
       auto_dup_go(vl, lvl, base, &use, n, lab, tgt, ext);
       break;
     }
-    case CLO: {
+    case DUP: {
       auto_dup_go(vl + 0, lvl, base, &use, n, lab, tgt, ext);
       auto_dup_go(vl + 1, lvl, base, &use, n, lab, tgt, ext);
       break;
@@ -84,7 +84,7 @@ fn Term parse_auto_dup(Term body, u32 lvl, u32 base, u32 uses, u8 tgt, u32 ext) 
     u64  loc = heap_alloc(2);
     HEAP[loc + 0] = v;
     HEAP[loc + 1] = result;
-    result = term_new(0, CLO, lab + i, loc);
+    result = term_new(0, DUP, lab + i, loc);
   }
 
   return result;

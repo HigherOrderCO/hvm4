@@ -42,7 +42,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
         goto enter;
       }
 
-      case CLO: {
+      case DUP: {
         u32  loc  = term_val(next);
         Term body = HEAP[loc + 1];
         next = body;
@@ -125,8 +125,8 @@ __attribute__((hot)) fn Term wnf(Term term) {
             next = wnf_alo_node(ls_loc, len, term_val(book), term_tag(book), term_ext(book), term_arity(book));
             goto enter;
           }
-          case CLO: {
-            next = wnf_alo_clo(ls_loc, len, term_val(book), term_ext(book));
+          case DUP: {
+            next = wnf_alo_dup(ls_loc, len, term_val(book), term_ext(book));
             goto enter;
           }
           case NUM: {

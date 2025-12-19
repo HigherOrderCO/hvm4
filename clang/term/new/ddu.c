@@ -1,4 +1,4 @@
-// DynClo(lab, val, bod): dynamic CLO binder, strict on lab
+// DynDup(lab, val, bod): dynamic DUP binder, strict on lab
 // Layout: HEAP[loc+0] = lab, HEAP[loc+1] = val, HEAP[loc+2] = bod
 fn Term term_new_ddu(Term lab, Term val, Term bod) {
   u32 loc = heap_alloc(3);
