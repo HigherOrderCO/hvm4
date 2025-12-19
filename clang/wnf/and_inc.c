@@ -1,5 +1,5 @@
 // (↑a & b)
-// --------- and-inc
+// --------- AND-INC
 // ↑(a & b)
 fn Term wnf_and_inc(Term inc, Term b) {
   ITRS++;

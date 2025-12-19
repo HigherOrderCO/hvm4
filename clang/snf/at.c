@@ -1,3 +1,7 @@
+// Quoted mode converts linked LAM/DUP binders into quoted LAM/DUP binders.
+// When `quoted` is set, linked vars (VAR/DP0/DP1) become BJV/BJ0/BJ1 indices
+// and the binders store their de Bruijn level in LAM.ext or BJ*. This is used
+// by collapse to emit static terms.
 #define SNF_SEEN_MAX 65536
 // Tracks visited heap locations to avoid DP0/DP1 cycles.
 static u32 SNF_SEEN[SNF_SEEN_MAX];
@@ -22,7 +26,7 @@ fn Term snf_at(u32 loc, u32 depth, u8 quoted, SnfState *st) {
   u8 tag = term_tag(term);
   if (!quoted && (tag == DP0 || tag == DP1)) {
     u32 dup_loc = term_val(term);
-    if (dup_loc != 0 && !term_sub(HEAP[dup_loc])) {
+    if (dup_loc != 0 && !term_sub_get(HEAP[dup_loc])) {
       for (u32 i = 0; i < st->seen_len; i++) {
         if (SNF_SEEN[i] == dup_loc) {
           return term;
@@ -37,7 +41,7 @@ fn Term snf_at(u32 loc, u32 depth, u8 quoted, SnfState *st) {
 
   if (!quoted && (tag == DP0 || tag == DP1)) {
     u32 dup_loc = term_val(term);
-    if (dup_loc != 0 && !term_sub(HEAP[dup_loc])) {
+    if (dup_loc != 0 && !term_sub_get(HEAP[dup_loc])) {
       u8 seen_dup = 0;
       for (u32 i = 0; i < st->seen_len; i++) {
         if (SNF_SEEN[i] == dup_loc) {

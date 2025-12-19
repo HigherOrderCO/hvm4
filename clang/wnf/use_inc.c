@@ -1,5 +1,5 @@
 // (use ↑x)
-// --------- use-inc
+// --------- USE-INC
 // ↑(use x)
 fn Term wnf_use_inc(Term use, Term inc) {
   ITRS++;

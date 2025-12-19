@@ -1,5 +1,5 @@
 // @@opr(&L{a,b}, y)
-// ------------------------- op2-sup
+// ------------------------- OP2-SUP
 // ! Y &L = y
 // &L{@@opr(a,Y₀), @@opr(b,Y₁)}
 fn Term wnf_op2_sup(u32 opr, Term sup, Term y) {

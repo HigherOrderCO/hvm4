@@ -1,5 +1,5 @@
 // (λ{f} &{})
-// ---------- use-era
+// ---------- USE-ERA
 // &{}
 fn Term wnf_use_era() {
   ITRS++;

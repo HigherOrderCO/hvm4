@@ -1,5 +1,5 @@
 // &(#n){a, b}
-// ----------- dsu-num
+// ----------- DSU-NUM
 // &n{a, b}
 fn Term wnf_dsu_num(Term lab_num, Term a, Term b) {
   ITRS++;

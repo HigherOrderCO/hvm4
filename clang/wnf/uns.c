@@ -1,5 +1,5 @@
 // ! ${f, v}; t
-// ------------- wnf UNS
+// ------------- WNF UNS
 // t(λy.λ$x.y, $x)
 fn Term wnf_uns(Term uns) {
   ITRS++;

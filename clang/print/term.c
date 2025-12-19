@@ -1,15 +1,15 @@
 // Pretty-printer overview
-// - Runtime links: LAM/VAR and DP0/DP1 point to heap locations; DUP is a
+// - Dynamic links: LAM/VAR and DP0/DP1 point to heap locations; DUP is a
 //   syntactic binder; it yields a DUP node (DP0/DP1 share its expr loc).
-// - Book terms (inside ALO) are immutable and use BJV/BJ0/BJ1 de Bruijn levels.
+// - Static terms (inside ALO) are immutable and use BJV/BJ0/BJ1 de Bruijn levels.
 // - NAM is a literal stuck name (^x), unrelated to binders.
-// - Runtime printing assigns globally unique names to each LAM body location.
-// - Dup names are keyed by the DUP node expression location and printed later.
-// - Quoted printing renders book terms and applies ALO substitutions.
+// - Dynamic printing assigns globally unique names to each LAM body location.
+// - Dup names are keyed by the DUP node expr location and printed after the term.
+// - Static printing renders quoted/book terms and applies ALO substitutions.
 // - Substitutions live in heap slots with the SUB bit set; these must be
 //   unmarked before printing, and print_term_at asserts this invariant.
 // - Lambda names: lowercase (a, b, ..., aa, ab, ...), dup names: uppercase.
-// - Quoted lambdas are tagged by LAM.ext = depth + 1 (runtime LAM.ext = 0).
+// - Quoted lambdas are tagged by LAM.ext = depth + 1 (linked LAM.ext = 0).
 // - Name tables are fixed-size (PRINT_NAME_MAX) to keep the printer simple.
 
 typedef struct {
@@ -46,7 +46,7 @@ typedef struct {
 fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st);
 // Guards against printing a term with the SUB bit set.
 fn void print_term_at(FILE *f, Term term, u32 depth, PrintState *st) {
-  assert(!term_sub(term));
+  assert(!term_sub_get(term));
   print_term_go(f, term, depth, st);
 }
 
@@ -138,7 +138,7 @@ fn u32 print_state_dup(PrintState *st, u32 loc, u32 lab) {
   return name;
 }
 
-// Looks up an ALO bind list entry by index (0 = innermost), returning a runtime loc.
+// Looks up an ALO bind list entry by index (0 = innermost), returning a dynamic loc.
 fn u32 alo_subst_get(u32 ls_loc, u32 idx) {
   u32 ls = ls_loc;
   for (u32 i = 0; i < idx && ls != 0; i++) {
@@ -283,7 +283,7 @@ fn void print_ctr(FILE *f, Term t, u32 d, PrintState *st) {
   fputc('}', f);
 }
 
-// Recursive printer that handles both runtime (linked) and quoted (book) terms.
+// Recursive printer that handles both dynamic (linked) and quoted (book) terms.
 fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
   u8  quoted = st->quoted;
   u32 subst  = st->subst;
@@ -307,8 +307,8 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       }
       if (bind != 0) {
         Term val = HEAP[bind];
-        if (term_sub(val)) {
-          val = term_unmark(val);
+        if (term_sub_get(val)) {
+          val = term_sub_set(val, 0);
           print_term_mode(f, val, depth, 0, 0, 0, st);
         } else {
           print_term_mode(f, term_new_var(bind), depth, 0, 0, 0, st);
@@ -354,8 +354,8 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       }
       if (bind != 0) {
         Term val = HEAP[bind];
-        if (term_sub(val)) {
-          val = term_unmark(val);
+        if (term_sub_get(val)) {
+          val = term_sub_set(val, 0);
           print_term_mode(f, val, depth, 0, 0, 0, st);
         } else {
           u8  tag = term_tag(term) == BJ0 ? DP0 : DP1;
@@ -379,8 +379,8 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
     case VAR: {
       // Runtime VAR: val is binding lam body location.
       u32 loc = term_val(term);
-      if (loc != 0 && term_sub(HEAP[loc])) {
-        print_term_mode(f, term_unmark(HEAP[loc]), depth, 0, 0, 0, st);
+      if (loc != 0 && term_sub_get(HEAP[loc])) {
+        print_term_mode(f, term_sub_set(HEAP[loc], 0), depth, 0, 0, 0, st);
       } else {
         u32 nam = print_state_lam(st, loc);
         print_lam_name(f, nam);
@@ -391,8 +391,8 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
     case DP1: {
       // Runtime DP_: val is a DUP node expr location.
       u32 loc = term_val(term);
-      if (loc != 0 && term_sub(HEAP[loc])) {
-        print_term_mode(f, term_unmark(HEAP[loc]), depth, 0, 0, 0, st);
+      if (loc != 0 && term_sub_get(HEAP[loc])) {
+        print_term_mode(f, term_sub_set(HEAP[loc], 0), depth, 0, 0, 0, st);
       } else {
         u32 nam = print_state_dup(st, loc, term_ext(term));
         print_dup_name(f, nam);
@@ -401,7 +401,7 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       break;
     }
     case LAM: {
-      // Quoted mode uses depth-based names; runtime mode uses global naming.
+      // Quoted mode uses depth-based names; dynamic mode uses global naming.
       u32 loc = term_val(term);
       fputs("λ", f);
       if (quoted) {
@@ -432,7 +432,7 @@ fn void print_term_go(FILE *f, Term term, u32 depth, PrintState *st) {
       break;
     }
     case DUP: {
-      // DUP term is a syntactic binder; runtime mode queues its DUP node and prints the body.
+      // DUP term is a syntactic binder; dynamic mode queues its DUP node and prints the body.
       u32 loc = term_val(term);
       if (quoted) {
         fputc('!', f);
@@ -618,8 +618,8 @@ fn void print_term_finish(FILE *f, PrintState *st) {
     print_name(f, lab);
     fputc('=', f);
     Term val = HEAP[loc];
-    if (term_sub(val)) {
-      val = term_unmark(val);
+    if (term_sub_get(val)) {
+      val = term_sub_set(val, 0);
     }
     print_term_at(f, val, 0, st);
     fputc(';', f);
@@ -635,12 +635,12 @@ fn void print_term_ex(FILE *f, Term term) {
   print_state_free(&st);
 }
 
-// Prints a runtime term (linked, global naming, floating dups).
+// Prints a dynamic term (linked, global naming, deferred dup printing).
 fn void print_term(Term term) {
   print_term_ex(stdout, term);
 }
 
-// Prints a quoted term (BJV/BJ0/BJ1) with depth-based lambda names.
+// Prints a static/quoted term (BJV/BJ0/BJ1) with depth-based lambda names.
 fn void print_term_quoted(Term term) {
   PrintState st;
   print_state_init(&st);

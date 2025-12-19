@@ -1,5 +1,5 @@
 // &(↑x){a, b}
-// ------------ dsu-inc
+// ------------ DSU-INC
 // ↑(&(x){a, b})
 fn Term wnf_dsu_inc(Term inc, Term a, Term b) {
   ITRS++;

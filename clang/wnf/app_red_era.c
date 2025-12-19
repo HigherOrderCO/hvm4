@@ -1,5 +1,5 @@
 // ((f ~> &{}) a)
-// -------------- app-red-era
+// -------------- APP-RED-ERA
 // &{}
 fn Term wnf_app_red_era(void) {
   ITRS++;

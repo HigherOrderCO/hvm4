@@ -1,5 +1,5 @@
 // (λ{f} &L{a,b})
-// ----------------- use-sup
+// ----------------- USE-SUP
 // ! F &L = f
 // &L{(λ{F₀} a), (λ{F₁} b)}
 fn Term wnf_use_sup(Term use, Term sup) {

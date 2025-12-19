@@ -1,5 +1,5 @@
 // @{s} ^(f x)
-// -------------- alo-dry
+// -------------- ALO-DRY
 // ^(@{s}f @{s}x)
 fn Term wnf_alo_dry(u32 ls_loc, u32 len, u32 loc) {
   u64 alo_loc0 = heap_alloc(1);

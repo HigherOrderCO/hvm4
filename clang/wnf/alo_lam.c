@@ -1,5 +1,5 @@
 // @{s} λx.f
-// ------------ alo-lam
+// ------------ ALO-LAM
 // x' ← fresh
 // λx'.@{x',s}f
 fn Term wnf_alo_lam(u32 ls_loc, u32 len, u32 book_body_loc) {

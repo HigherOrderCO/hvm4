@@ -1,5 +1,5 @@
 // (λ{af} === λ{bf})
-// ----------------- eql-use
+// ----------------- EQL-USE
 // af === bf
 fn Term wnf_eql_use(Term a, Term b) {
   ITRS++;

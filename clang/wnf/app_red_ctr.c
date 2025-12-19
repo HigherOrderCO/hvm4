@@ -1,5 +1,5 @@
 // ((f ~> #K{...}) a)
-// ------------------ app-red-ctr
+// ------------------ APP-RED-CTR
 // ^((f ~> #K{...}) a)
 fn Term wnf_app_red_ctr(Term f, Term ctr, Term arg) {
   ITRS++;

@@ -1,5 +1,5 @@
 // (&L{a0,a1} === b)
-// ---------------------- eql-sup-l
+// ---------------------- EQL-SUP-L
 // ! B &L = b
 // &L{(a0 === B₀), (a1 === B₁)}
 fn Term wnf_eql_sup_l(Term sup, Term b) {
@@ -18,7 +18,7 @@ fn Term wnf_eql_sup_l(Term sup, Term b) {
 }
 
 // (a === &L{b0,b1})
-// ---------------------- eql-sup-r
+// ---------------------- EQL-SUP-R
 // ! A &L = a
 // &L{(A₀ === b0), (A₁ === b1)}
 fn Term wnf_eql_sup_r(Term a, Term sup) {

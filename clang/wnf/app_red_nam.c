@@ -1,5 +1,5 @@
 // ((f ~> name) a)
-// ---------------- app-red-nam
+// ---------------- APP-RED-NAM
 // ^((f ~> name) a)
 fn Term wnf_app_red_nam(Term f, Term nam, Term arg) {
   ITRS++;

@@ -1,5 +1,5 @@
 // ((f ~> ↑g) x)
-// -------------- app-red-inc
+// -------------- APP-RED-INC
 // ↑((f ~> g) x)
 fn Term wnf_app_red_inc(Term f, Term inc, Term arg) {
   ITRS++;

@@ -1,5 +1,5 @@
 // (&{} .|. b)
-// ----------- or-era
+// ----------- OR-ERA
 // &{}
 fn Term wnf_or_era(void) {
   ITRS++;

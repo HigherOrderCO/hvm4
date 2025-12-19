@@ -1,5 +1,5 @@
 // (x op &L{a,b}) where x is NUM
-// ------------------------- op2-num-sup
+// ------------------------- OP2-NUM-SUP
 // ! X &L = x
 // &L{(X₀ op a), (X₁ op b)}
 fn Term wnf_op2_num_sup(u32 opr, Term x, Term sup) {

@@ -1,5 +1,5 @@
 // (λ{...} ↑x)
-// ------------ mat-inc
+// ------------ MAT-INC
 // ↑(λ{...} x)
 fn Term wnf_mat_inc(Term mat, Term inc) {
   ITRS++;

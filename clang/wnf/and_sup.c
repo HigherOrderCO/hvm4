@@ -1,5 +1,5 @@
 // (&L{a0,a1} .&. b)
-// -------------------------- and-sup
+// -------------------------- AND-SUP
 // ! B &L = b
 // &L{(a0 .&. B₀), (a1 .&. B₁)}
 fn Term wnf_and_sup(Term sup, Term b) {

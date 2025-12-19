@@ -1,5 +1,5 @@
 // ((f ~> λ{#K:h; m}) #K{a,b})
-// --------------------------- app-red-mat-ctr-match
+// --------------------------- APP-RED-MAT-CTR-MAT
 // ((λa.λb.(f #K{a,b}) ~> h) a b)
 fn Term wnf_app_red_mat_ctr_match(Term f, Term mat, Term ctr) {
   ITRS++;
@@ -37,7 +37,7 @@ fn Term wnf_app_red_mat_ctr_match(Term f, Term mat, Term ctr) {
 }
 
 // ((f ~> λ{#K:h; m}) #L{a,b})
-// --------------------------- app-red-mat-ctr-miss
+// --------------------------- APP-RED-MAT-CTR-MIS
 // ((f ~> m) #L{a,b})
 fn Term wnf_app_red_mat_ctr_miss(Term f, Term mat, Term ctr) {
   ITRS++;

@@ -1,5 +1,5 @@
 // (#a op #b)
-// -------------- op2-num-num
+// -------------- OP2-NUM-NUM
 // #(a opr b)
 fn Term wnf_op2_num_num(u32 opr, Term x, Term y) {
   ITRS++;

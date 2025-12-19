@@ -1,5 +1,5 @@
 // ((f ~> λ{n:z; m}) #n)
-// --------------------- app-red-mat-num-match
+// --------------------- APP-RED-MAT-NUM-MAT
 // (f #n) ~> z
 fn Term wnf_app_red_mat_num_match(Term f, Term mat, Term num) {
   ITRS++;
@@ -9,7 +9,7 @@ fn Term wnf_app_red_mat_num_match(Term f, Term mat, Term num) {
 }
 
 // ((f ~> λ{n:z; m}) #k) where k != n
-// ---------------------------------- app-red-mat-num-miss
+// ---------------------------------- APP-RED-MAT-NUM-MIS
 // ((λp.(f p) ~> m) #k)
 fn Term wnf_app_red_mat_num_miss(Term f, Term mat, Term num) {
   ITRS++;

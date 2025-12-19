@@ -1,5 +1,5 @@
 // (↑x op y)
-// ---------- op2-inc-x
+// ---------- OP2-INC-X
 // ↑(x op y)
 fn Term wnf_op2_inc_x(u32 opr, Term inc, Term y) {
   ITRS++;
@@ -11,7 +11,7 @@ fn Term wnf_op2_inc_x(u32 opr, Term inc, Term y) {
 }
 
 // (#n op ↑y)
-// ---------- op2-inc-y
+// ---------- OP2-INC-Y
 // ↑(#n op y)
 fn Term wnf_op2_inc_y(u32 opr, Term x, Term inc) {
   ITRS++;

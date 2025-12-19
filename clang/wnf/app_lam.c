@@ -1,5 +1,5 @@
 // (λx.f a)
-// -------- app-lam
+// -------- APP-LAM
 // x ← a
 // f
 fn Term wnf_app_lam(Term lam, Term arg) {

@@ -1,9 +1,9 @@
 // (λ{#K:h; m} #K{a,b})
-// -------------------- app-mat-ctr-match
+// -------------------- APP-MAT-CTR-MAT
 // (h a b)
 //
 // (λ{#K:h; m} #L{a,b})
-// -------------------- app-mat-ctr-miss
+// -------------------- APP-MAT-CTR-MIS
 // (m #L{a,b})
 fn Term wnf_app_mat_ctr(Term mat, Term ctr) {
   ITRS++;

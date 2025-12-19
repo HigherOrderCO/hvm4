@@ -1,5 +1,5 @@
 // ! X &(&{}) = v; b
-// ----------------- ddu-era
+// ----------------- DDU-ERA
 // &{}
 fn Term wnf_ddu_era() {
   ITRS++;

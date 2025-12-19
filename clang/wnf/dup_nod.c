@@ -1,11 +1,11 @@
-// ! X &L = #K{a,b,...}
-// -------------------- dup-ctr/mat/era
+// ! X &L = T{a,b,...}
+// ------------------- DUP-NOD
 // ! A &L = a
 // ! B &L = b
 // ...
-// X₀ ← #K{A₀,B₀,...}
-// X₁ ← #K{A₁,B₁,...}
-fn Term wnf_dup_node(u32 lab, u32 loc, u8 side, Term term) {
+// X₀ ← T{A₀,B₀,...}
+// X₁ ← T{A₁,B₁,...}
+fn Term wnf_dup_nod(u32 lab, u32 loc, u8 side, Term term) {
   ITRS++;
   u32 ari = term_arity(term);
   if (ari == 0) {

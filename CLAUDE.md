@@ -3,9 +3,9 @@
 ## What This Is
 
 HVM4 is a term rewrite system / runtime for the Interaction Calculus.
-- The theoretical spec is in `README.md`.
+- The theoretical spec is in `docs/theory/interaction_calculus.md`.
 - The C implementation is in `clang/`.
-- The C spec is in `clang/README.md`.
+- The C spec is in `docs/hvm4/memory.md`.
 
 ## Build and Test
 
@@ -47,7 +47,7 @@ collapse/_.c     →  collapse()
 parse/term/_.c   →  parse_term()
 ```
 
-This is strictly enforced. Read `clang/STYLE.md` before writing any code.
+This is strictly enforced. Read `STYLEGUIDE.md` before writing any code.
 
 ### Key Modules in `clang/`
 

@@ -1,5 +1,5 @@
 // ((f ~> λ{#K:h; m}) &{})
-// ----------------------- app-red-mat-era
+// ----------------------- APP-RED-MAT-ERA
 // &{}
 fn Term wnf_app_red_mat_era(void) {
   ITRS++;

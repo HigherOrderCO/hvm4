@@ -212,13 +212,12 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 // Term
 // ====
 #include "term/new.c"
-#include "term/sub.c"
+#include "term/sub/get.c"
+#include "term/sub/set.c"
 #include "term/tag.c"
 #include "term/ext.c"
 #include "term/val.c"
 #include "term/arity.c"
-#include "term/mark.c"
-#include "term/unmark.c"
 
 // Heap
 // ====
@@ -360,14 +359,14 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 #include "wnf/dup_red.c"
 #include "wnf/dup_lam.c"
 #include "wnf/dup_sup.c"
-#include "wnf/dup_node.c"
+#include "wnf/dup_nod.c"
 #include "wnf/alo_var.c"
 #include "wnf/alo_cop.c"
 #include "wnf/alo_nam.c"
 #include "wnf/alo_dry.c"
 #include "wnf/alo_lam.c"
 #include "wnf/alo_dup.c"
-#include "wnf/alo_node.c"
+#include "wnf/alo_nod.c"
 #include "wnf/op2_era.c"
 #include "wnf/op2_sup.c"
 #include "wnf/op2_num_era.c"

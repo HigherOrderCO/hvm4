@@ -1,5 +1,5 @@
 // (x op &{}) where x is NUM
-// -------------- op2-num-era
+// -------------- OP2-NUM-ERA
 // &{}
 fn Term wnf_op2_num_era() {
   ITRS++;

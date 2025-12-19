@@ -1,5 +1,5 @@
 // (&{} === b)
-// ----------- eql-era-l
+// ----------- EQL-ERA-L
 // &{}
 fn Term wnf_eql_era_l(void) {
   ITRS++;
@@ -7,7 +7,7 @@ fn Term wnf_eql_era_l(void) {
 }
 
 // (a === &{})
-// ----------- eql-era-r
+// ----------- EQL-ERA-R
 // &{}
 fn Term wnf_eql_era_r(void) {
   ITRS++;

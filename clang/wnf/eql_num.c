@@ -1,5 +1,5 @@
 // (#a === #b)
-// ------------ eql-num
+// ------------ EQL-NUM
 // #(a == b)
 fn Term wnf_eql_num(Term a, Term b) {
   ITRS++;

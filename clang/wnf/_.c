@@ -1,3 +1,10 @@
+// WNF uses an explicit stack to avoid recursion.
+// - Enter/reduce: walk into the head position, pushing eliminators as frames.
+//   APP/OP2/EQL/AND/OR/DSU/DDU push their term as a frame and descend into the
+//   left/strict field (APP fun, OP2 lhs, etc). DP0/DP1 push and descend into the
+//   shared dup expr. MAT/USE/RED add specialized frames when their scrutinee is ready.
+// - Apply: once WHNF is reached, pop frames and dispatch the interaction using
+//   the WHNF result. Frames reuse existing heap nodes to avoid allocations.
 __attribute__((hot)) fn Term wnf(Term term) {
   u32 base = S_POS;
   Term next = term;
@@ -13,8 +20,8 @@ __attribute__((hot)) fn Term wnf(Term term) {
     switch (term_tag(next)) {
       case VAR: {
         u32 loc = term_val(next);
-        if (term_sub(HEAP[loc])) {
-          next = term_unmark(HEAP[loc]);
+        if (term_sub_get(HEAP[loc])) {
+          next = term_sub_set(HEAP[loc], 0);
           goto enter;
         }
         whnf = next;
@@ -24,8 +31,8 @@ __attribute__((hot)) fn Term wnf(Term term) {
       case DP0:
       case DP1: {
         u32 loc = term_val(next);
-        if (term_sub(HEAP[loc])) {
-          next = term_unmark(HEAP[loc]);
+        if (term_sub_get(HEAP[loc])) {
+          next = term_sub_set(HEAP[loc], 0);
           goto enter;
         }
         Term dup_val = HEAP[loc];
@@ -122,7 +129,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
           case DSU:
           case DDU:
           case RED: {
-            next = wnf_alo_node(ls_loc, len, term_val(book), term_tag(book), term_ext(book), term_arity(book));
+            next = wnf_alo_nod(ls_loc, len, term_val(book), term_tag(book), term_ext(book), term_arity(book));
             goto enter;
           }
           case DUP: {
@@ -595,7 +602,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
             case ERA:
             case ANY:
             case NUM: {
-              whnf = wnf_dup_node(lab, loc, side, whnf);
+              whnf = wnf_dup_nod(lab, loc, side, whnf);
               continue;
             }
             // case APP: // !! DO NOT ADD: DP0/DP1 do not interact with APP.
@@ -607,7 +614,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
             case DSU:
             case DDU:
             case C00 ... C16: {
-              next = wnf_dup_node(lab, loc, side, whnf);
+              next = wnf_dup_nod(lab, loc, side, whnf);
               goto enter;
             }
             default: {

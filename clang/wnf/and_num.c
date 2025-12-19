@@ -1,9 +1,9 @@
 // (#0 .&. b)
-// ---------- and-zero
+// ---------- AND-ZER
 // #0
 //
 // (#n .&. b)   [n ≠ 0]
-// -------------------- and-nonzero
+// -------------------- AND-ONE
 // b
 fn Term wnf_and_num(Term num, Term b) {
   ITRS++;

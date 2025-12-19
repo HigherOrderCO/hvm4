@@ -1,5 +1,5 @@
 // (&L{f,g} a)
-// ----------------- app-sup
+// ----------------- APP-SUP
 // ! A &L = a
 // &L{(f A₀),(g A₁)}
 fn Term wnf_app_sup(Term app, Term sup) {

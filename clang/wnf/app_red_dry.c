@@ -1,5 +1,5 @@
 // ((f ~> ^(g x)) a)
-// ----------------- app-red-dry
+// ----------------- APP-RED-DRY
 // ^((f ~> ^(g x)) a)
 fn Term wnf_app_red_dry(Term f, Term dry, Term arg) {
   ITRS++;

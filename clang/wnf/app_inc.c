@@ -1,5 +1,5 @@
 // (↑f x)
-// -------- app-inc
+// -------- APP-INC
 // ↑(f x)
 fn Term wnf_app_inc(Term app, Term inc) {
   ITRS++;

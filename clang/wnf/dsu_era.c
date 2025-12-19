@@ -1,5 +1,5 @@
 // &(&{}){a, b}
-// ------------ dsu-era
+// ------------ DSU-ERA
 // &{}
 fn Term wnf_dsu_era() {
   ITRS++;

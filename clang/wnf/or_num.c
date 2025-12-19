@@ -1,9 +1,9 @@
 // (#0 .|. b)
-// ---------- or-zero
+// ---------- OR-ZER
 // b
 //
 // (#n .|. b)   [n ≠ 0]
-// -------------------- or-nonzero
+// -------------------- OR-ONE
 // #1
 fn Term wnf_or_num(Term num, Term b) {
   ITRS++;

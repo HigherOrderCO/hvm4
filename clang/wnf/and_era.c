@@ -1,5 +1,5 @@
 // (&{} .&. b)
-// ----------- and-era
+// ----------- AND-ERA
 // &{}
 fn Term wnf_and_era(void) {
   ITRS++;

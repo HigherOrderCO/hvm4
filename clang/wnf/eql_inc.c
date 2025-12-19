@@ -1,5 +1,5 @@
 // (↑a === b)
-// ----------- eql-inc-l
+// ----------- EQL-INC-L
 // ↑(a === b)
 fn Term wnf_eql_inc_l(Term inc, Term b) {
   ITRS++;
@@ -11,7 +11,7 @@ fn Term wnf_eql_inc_l(Term inc, Term b) {
 }
 
 // (a === ↑b)
-// ----------- eql-inc-r
+// ----------- EQL-INC-R
 // ↑(a === b)
 fn Term wnf_eql_inc_r(Term a, Term inc) {
   ITRS++;

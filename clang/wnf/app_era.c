@@ -1,5 +1,5 @@
 // (&{} a)
-// ------- app-era
+// ------- APP-ERA
 // &{}
 fn Term wnf_app_era(void) {
   ITRS++;

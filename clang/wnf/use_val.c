@@ -1,5 +1,5 @@
 // (λ{f} x)
-// --------- use-val
+// --------- USE-VAL
 // (f x)
 fn Term wnf_use_val(Term use, Term val) {
   ITRS++;

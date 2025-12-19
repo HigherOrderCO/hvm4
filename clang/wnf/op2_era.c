@@ -1,5 +1,5 @@
 // @@opr(&{}, y)
-// ------------- op2-era
+// ------------- OP2-ERA
 // &{}
 fn Term wnf_op2_era() {
   ITRS++;

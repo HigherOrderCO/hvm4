@@ -1,5 +1,5 @@
 // ! X &L = name
-// ------------ dup-nam
+// ------------ DUP-NAM
 // X₀ ← name
 // X₁ ← name
 fn Term wnf_dup_nam(u32 lab, u32 loc, u8 side, Term nam) {

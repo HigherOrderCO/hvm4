@@ -1,5 +1,5 @@
 // ((f ~> mat) ↑x)
-// --------------- app-red-mat-inc
+// --------------- APP-RED-MAT-INC
 // ↑((f ~> mat) x)
 fn Term wnf_app_red_mat_inc(Term f, Term mat, Term inc) {
   ITRS++;

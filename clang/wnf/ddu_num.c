@@ -1,5 +1,5 @@
 // ! X &(#n) = v; b
-// ---------------- ddu-num
+// ---------------- DDU-NUM
 // ! X &n = v
 // b
 fn Term wnf_ddu_num(Term lab_num, Term val, Term bod) {

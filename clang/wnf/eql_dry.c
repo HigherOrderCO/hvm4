@@ -1,5 +1,5 @@
 // (^(af ax) === ^(bf bx))
-// ----------------------- eql-dry
+// ----------------------- EQL-DRY
 // (af === bf) & (ax === bx)
 fn Term wnf_eql_dry(Term a, Term b) {
   ITRS++;

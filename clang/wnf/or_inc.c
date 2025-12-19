@@ -1,5 +1,5 @@
 // (↑a | b)
-// --------- or-inc
+// --------- OR-INC
 // ↑(a | b)
 fn Term wnf_or_inc(Term inc, Term b) {
   ITRS++;

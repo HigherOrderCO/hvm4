@@ -1,5 +1,5 @@
 // (* === b)
-// ----------- eql-any-l
+// ----------- EQL-ANY-L
 // 1
 fn Term wnf_eql_any_l(void) {
   ITRS++;
@@ -7,7 +7,7 @@ fn Term wnf_eql_any_l(void) {
 }
 
 // (a === *)
-// ----------- eql-any-r
+// ----------- EQL-ANY-R
 // 1
 fn Term wnf_eql_any_r(void) {
   ITRS++;

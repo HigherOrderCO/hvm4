@@ -1,11 +1,11 @@
 // (#K{a0,a1...} === #K{b0,b1...})  (same tag)
-// --------------------------------------- eql-ctr-match
+// --------------------------------------- EQL-CTR-MAT
 // For SUC (1n+): ↑(pred === pred)
 // For CON (<>): ↑((head === head) & ↑(tail === tail))
 // Others: (a0 === b0) & (a1 === b1) & ...
 //
 // (#K{...} === #L{...})  (different tag)
-// ------------------------------------- eql-ctr-miss
+// ------------------------------------- EQL-CTR-MIS
 // #0
 fn Term wnf_eql_ctr(Term a, Term b) {
   ITRS++;

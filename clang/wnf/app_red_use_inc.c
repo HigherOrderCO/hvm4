@@ -1,5 +1,5 @@
 // ((f ~> use) ↑x)
-// --------------- app-red-use-inc
+// --------------- APP-RED-USE-INC
 // ↑((f ~> use) x)
 fn Term wnf_app_red_use_inc(Term f, Term use, Term inc) {
   ITRS++;

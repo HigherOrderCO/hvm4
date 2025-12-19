@@ -1,5 +1,5 @@
 // ! X &(↑x) = v; b
-// ---------------- ddu-inc
+// ---------------- DDU-INC
 // ↑(! X &(x) = v; b)
 fn Term wnf_ddu_inc(Term inc, Term val, Term bod) {
   ITRS++;
