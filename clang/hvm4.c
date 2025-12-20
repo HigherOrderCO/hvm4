@@ -5,6 +5,18 @@
 #include <ctype.h>
 #include <time.h>
 #include <assert.h>
+#include <pthread.h>
+#include <sched.h>
+#include <stdatomic.h>
+#include <sys/mman.h>
+
+#if defined(__aarch64__) || defined(__arm64__)
+#define cpu_relax() __asm__ __volatile__("yield" ::: "memory")
+#elif defined(__x86_64__) || defined(__i386__)
+#define cpu_relax() __asm__ __volatile__("pause" ::: "memory")
+#else
+#define cpu_relax() ((void)0)
+#endif
 
 // Types
 // =====
@@ -153,11 +165,88 @@ typedef struct {
 #define BOOK_CAP (1ULL << 24)
 #define WNF_CAP  (1ULL << 32)
 
+// Threading
+// =========
+
+#ifndef MAX_THREADS
+#define MAX_THREADS 64
+#endif
+
+typedef struct {
+  u64 v;
+  u8  _pad[128 - sizeof(u64)];
+} PaddedU64;
+
 // Heap Globals
 // ============
 
 static Term *HEAP;
-static u64   ALLOC = 1;
+static PaddedU64 HEAP_BASE[MAX_THREADS];
+static PaddedU64 HEAP_END[MAX_THREADS];
+static PaddedU64 HEAP_NEXT[MAX_THREADS];
+static PaddedU64 ITRS_BANKS[MAX_THREADS];
+
+// Thread Globals
+// ==============
+
+static u32 THREAD_COUNT = 1;
+static _Thread_local u32 WNF_TID = 0;
+static _Thread_local u64 *ITRS_PTR = NULL;
+static _Thread_local u64 ITRS_LOCAL = 0;
+static _Thread_local u64 HEAP_END_LOCAL = 0;
+static _Thread_local u64 HEAP_NEXT_LOCAL = 0;
+
+fn u32 wnf_tid(void) {
+  return WNF_TID;
+}
+
+fn void thread_set_qos(void) {
+#if defined(__APPLE__) && defined(QOS_CLASS_USER_INTERACTIVE)
+  pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+#endif
+}
+
+fn void wnf_set_tid(u32 id) {
+  WNF_TID = id;
+  ITRS_PTR = &ITRS_BANKS[id].v;
+  ITRS_LOCAL = 0;
+  HEAP_END_LOCAL = HEAP_END[id].v;
+  HEAP_NEXT_LOCAL = HEAP_NEXT[id].v;
+}
+
+// Forward declaration (defined in heap/alloc.c)
+fn void heap_recompute_banks(void);
+
+fn void thread_set_count(u32 n) {
+  if (n == 0) n = 1;
+  if (n > MAX_THREADS) n = MAX_THREADS;
+  THREAD_COUNT = n;
+  heap_recompute_banks();
+}
+
+fn u32 thread_get_count(void) {
+  return THREAD_COUNT ? THREAD_COUNT : 1u;
+}
+
+// Shared heap atomics (used for dup/var slots)
+fn Term heap_load_shared(u32 loc) {
+  return __atomic_load_n(&HEAP[loc], __ATOMIC_RELAXED);
+}
+
+fn void heap_store_shared(u32 loc, Term val) {
+  __atomic_store_n(&HEAP[loc], val, __ATOMIC_RELAXED);
+}
+
+fn Term heap_take_shared(u32 loc) {
+  return __atomic_exchange_n(&HEAP[loc], 0, __ATOMIC_RELAXED);
+}
+
+// Fresh IDs (used by EQL-LAM)
+static _Atomic u64 FRESH_ID = 1;
+
+fn u32 fresh_id(void) {
+  return (u32)atomic_fetch_add_explicit(&FRESH_ID, 1, memory_order_relaxed);
+}
 
 // Book Globals
 // ============
@@ -167,10 +256,60 @@ static u32 *BOOK;
 // WNF Globals
 // ===========
 
-static Term *STACK;
-static u32   S_POS = 1;
-static u64   ITRS  = 0;
-static int   DEBUG = 0;
+static _Thread_local Term *STACK;
+static _Thread_local u32   S_POS = 1;
+#define ITRS (ITRS_LOCAL)
+static int DEBUG = 0;
+
+// Stack Init (per-thread)
+// =======================
+
+#ifndef MAP_ANONYMOUS
+#define MAP_ANONYMOUS MAP_ANON
+#endif
+
+#ifndef MAP_NORESERVE
+#define MAP_NORESERVE 0
+#endif
+
+fn void wnf_stack_init(void) {
+  if (STACK) return;
+
+  size_t bytes = (size_t)WNF_CAP * sizeof(Term);
+  int prot = PROT_READ | PROT_WRITE;
+  int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
+  Term *stack = (Term*)mmap(NULL, bytes, prot, flags, -1, 0);
+  if (stack == MAP_FAILED) {
+    stack = (Term*)malloc(bytes);
+  }
+  if (!stack) {
+    fprintf(stderr, "wnf_stack_init: out of memory\n");
+    abort();
+  }
+  STACK = stack;
+  S_POS = 1;
+}
+
+fn void wnf_itrs_flush(void) {
+  if (ITRS_PTR) {
+    *ITRS_PTR = ITRS_LOCAL;
+  }
+}
+
+fn void heap_bank_flush(void) {
+  u32 tid = wnf_tid();
+  HEAP_NEXT[tid].v = HEAP_NEXT_LOCAL;
+}
+
+fn u64 wnf_itrs_total(void) {
+  u64 sum = 0;
+  u32 n = thread_get_count();
+  wnf_itrs_flush();
+  for (u32 i = 0; i < n; ++i) {
+    sum += ITRS_BANKS[i].v;
+  }
+  return sum;
+}
 
 // Nick Alphabet
 // =============
@@ -429,6 +568,7 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 
 #include "snf/at.c"
 #include "snf/_.c"
+#include "snf/par.c"
 
 // Collapse
 // ========
@@ -436,3 +576,4 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 #include "collapse/inject.c"
 #include "collapse/step.c"
 #include "collapse/flatten.c"
+#include "collapse/flatten_par.c"

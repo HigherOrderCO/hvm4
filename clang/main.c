@@ -4,10 +4,11 @@
 // This file provides the command-line interface for the HVM4 runtime,
 // mirroring the structure of main.hs for the Haskell implementation.
 //
-// Usage: ./main <file.hvm4> [-s] [-C[N]]
+// Usage: ./main <file.hvm4> [-s] [-C[N]] [-T<N>]
 //   -s:  Show statistics (interactions, time, performance)
 //   -C:  Collapse and flatten (enumerate all superposition branches)
 //   -CN: Collapse and flatten, limit to N results
+//   -T:  Use N threads
 
 #include "hvm4.c"
 
@@ -19,11 +20,12 @@ typedef struct {
   int   do_collapse;
   int   collapse_limit;  // -1 means no limit
   int   debug;
+  int   threads;
   char *file;
 } CliOpts;
 
 fn CliOpts parse_opts(int argc, char **argv) {
-  CliOpts opts = { .stats = 0, .do_collapse = 0, .collapse_limit = -1, .debug = 0, .file = NULL };
+  CliOpts opts = { .stats = 0, .do_collapse = 0, .collapse_limit = -1, .debug = 0, .threads = 1, .file = NULL };
 
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "-s") == 0) {
@@ -35,6 +37,13 @@ fn CliOpts parse_opts(int argc, char **argv) {
       }
     } else if (strcmp(argv[i], "-d") == 0) {
       opts.debug = 1;
+    } else if (argv[i][0] == '-' && argv[i][1] == 'T') {
+      if (argv[i][2] == '\0') {
+        fprintf(stderr, "Error: -T requires a thread count\n");
+        exit(1);
+      }
+      opts.threads = atoi(&argv[i][2]);
+      if (opts.threads < 1) opts.threads = 1;
     } else if (argv[i][0] != '-') {
       if (opts.file == NULL) {
         opts.file = argv[i];
@@ -64,19 +73,22 @@ int main(int argc, char **argv) {
   CliOpts opts = parse_opts(argc, argv);
 
   if (opts.file == NULL) {
-    fprintf(stderr, "Usage: ./main <file.hvm4> [-s] [-C[N]]\n");
+    fprintf(stderr, "Usage: ./main <file.hvm4> [-s] [-C[N]] [-T<N>]\n");
     return 1;
   }
 
   // Allocate memory
   BOOK  = calloc(BOOK_CAP, sizeof(u32));
   HEAP  = calloc(HEAP_CAP, sizeof(Term));
-  STACK = calloc(WNF_CAP, sizeof(Term));
   TABLE = calloc(BOOK_CAP, sizeof(char*));
 
-  if (!BOOK || !HEAP || !STACK || !TABLE) {
+  if (!BOOK || !HEAP || !TABLE) {
     sys_error("Memory allocation failed");
   }
+
+  // Configure thread count and heap banks
+  thread_set_count((u32)opts.threads);
+  wnf_set_tid(0);
 
   // Set debug mode
   DEBUG = opts.debug;
@@ -133,10 +145,16 @@ int main(int argc, char **argv) {
 
   if (opts.do_collapse) {
     // Lazy collapse + flatten: handles infinite structures
-    collapse_flatten(main_ref, opts.collapse_limit, opts.stats);
+    if (thread_get_count() > 1) {
+      collapse_flatten_par(main_ref, opts.collapse_limit, opts.stats);
+    } else {
+      collapse_flatten(main_ref, opts.collapse_limit, opts.stats);
+    }
   } else {
     // Standard evaluation to strong normal form
-    Term result = snf(main_ref, 0, 0);
+    Term result = (thread_get_count() > 1)
+      ? snf_par(main_ref)
+      : snf(main_ref, 0, 0);
     print_term(result);
     printf("\n");
   }
@@ -145,17 +163,23 @@ int main(int argc, char **argv) {
 
   // Print stats if requested
   if (opts.stats) {
+    FILE *stats_out = getenv("HVM4_STATS_STDERR") ? stderr : stdout;
     double dt  = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
-    double ips = ITRS / dt;
-    printf("- Itrs: %llu interactions\n", ITRS);
-    printf("- Time: %.3f seconds\n", dt);
-    printf("- Perf: %.2f M interactions/s\n", ips / 1e6);
+    u64 total_itrs = wnf_itrs_total();
+    double ips = total_itrs / dt;
+    fprintf(stats_out, "- Itrs: %llu interactions\n", total_itrs);
+    fprintf(stats_out, "- Time: %.3f seconds\n", dt);
+    fprintf(stats_out, "- Perf: %.2f M interactions/s\n", ips / 1e6);
+    if (thread_get_count() > 1 && getenv("HVM4_ITRS_THREADS")) {
+      for (u32 i = 0; i < thread_get_count(); ++i) {
+        fprintf(stats_out, "- Itrs[T%u]: %llu\n", i, (unsigned long long)ITRS_BANKS[i].v);
+      }
+    }
   }
 
   // Cleanup
   free(HEAP);
   free(BOOK);
-  free(STACK);
   free(TABLE);
 
   return 0;

@@ -19,7 +19,7 @@ if [ ! -f "$C_MAIN" ]; then
   echo "error: expected C entrypoint at $C_MAIN" >&2
   exit 1
 fi
-(cd "$DIR/../clang" && clang -O2 -o main main.c)
+(cd "$DIR/../clang" && clang -O2 -pthread -o main main.c)
 
 tmp_files=()
 cleanup() {

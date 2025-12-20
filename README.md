@@ -6,7 +6,7 @@ HVM4 is a high-performance runtime for the [Interaction Calculus](docs/theory/in
 
 ```bash
 # Build
-cd clang && clang -O2 -o main main.c
+cd clang && clang -O2 -pthread -o main main.c
 
 # Run a file (use collapse mode by default)
 ./clang/main test/file.hvm4 -s -C10
@@ -18,6 +18,17 @@ cd clang && clang -O2 -o main main.c
 Flags:
 - `-s` shows performance stats
 - `-C10` collapses and flattens superpositions (limit to 10 lines)
+- `-T12` uses 12 threads
+
+## Benchmark
+
+```bash
+# Parallel tree workload (256 leaves, sequential work per leaf)
+./clang/main bench/parallel_tree.hvm4 -s -T12
+
+# Collapse mode (limit to 256 lines)
+./clang/main bench/parallel_tree.hvm4 -s -C256 -T12
+```
 
 ## Examples
 

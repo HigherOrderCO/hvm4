@@ -6,7 +6,10 @@
 // - Apply: once WHNF is reached, pop frames and dispatch the interaction using
 //   the WHNF result. Frames reuse existing heap nodes to avoid allocations.
 __attribute__((hot)) fn Term wnf(Term term) {
-  u32 base = S_POS;
+  wnf_stack_init();
+  Term *stack = STACK;
+  u32 sp = S_POS;
+  u32 base = sp;
   Term next = term;
   Term whnf;
 
@@ -20,8 +23,13 @@ __attribute__((hot)) fn Term wnf(Term term) {
     switch (term_tag(next)) {
       case VAR: {
         u32 loc = term_val(next);
-        if (term_sub_get(HEAP[loc])) {
-          next = term_sub_set(HEAP[loc], 0);
+        Term cell = heap_load_shared(loc);
+        while (cell == 0) {
+          cpu_relax();
+          cell = heap_load_shared(loc);
+        }
+        if (term_sub_get(cell)) {
+          next = term_sub_set(cell, 0);
           goto enter;
         }
         whnf = next;
@@ -31,20 +39,35 @@ __attribute__((hot)) fn Term wnf(Term term) {
       case DP0:
       case DP1: {
         u32 loc = term_val(next);
-        if (term_sub_get(HEAP[loc])) {
-          next = term_sub_set(HEAP[loc], 0);
+        for (;;) {
+          Term cell = heap_load_shared(loc);
+          while (cell == 0) {
+            cpu_relax();
+            cell = heap_load_shared(loc);
+          }
+          if (term_sub_get(cell)) {
+            next = term_sub_set(cell, 0);
+            goto enter;
+          }
+          Term dup_val = heap_take_shared(loc);
+          if (dup_val == 0) {
+            continue;
+          }
+          if (term_sub_get(dup_val)) {
+            heap_store_shared(loc, dup_val);
+            next = term_sub_set(dup_val, 0);
+            goto enter;
+          }
+          stack[sp++] = next;
+          next = dup_val;
           goto enter;
         }
-        Term dup_val = HEAP[loc];
-        STACK[S_POS++] = next;
-        next = dup_val;
-        goto enter;
       }
 
       case APP: {
         u32  loc = term_val(next);
         Term fun = HEAP[loc];
-        STACK[S_POS++] = next;
+        stack[sp++] = next;
         next = fun;
         goto enter;
       }
@@ -152,7 +175,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
       case OP2: {
         u32  loc = term_val(next);
         Term x   = HEAP[loc + 0];
-        STACK[S_POS++] = next;
+        stack[sp++] = next;
         next = x;
         goto enter;
       }
@@ -160,7 +183,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
       case EQL: {
         u32  loc = term_val(next);
         Term a   = HEAP[loc + 0];
-        STACK[S_POS++] = next;
+        stack[sp++] = next;
         next = a;
         goto enter;
       }
@@ -168,7 +191,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
       case AND: {
         u32  loc = term_val(next);
         Term a   = HEAP[loc + 0];
-        STACK[S_POS++] = next;
+        stack[sp++] = next;
         next = a;
         goto enter;
       }
@@ -176,7 +199,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
       case OR: {
         u32  loc = term_val(next);
         Term a   = HEAP[loc + 0];
-        STACK[S_POS++] = next;
+        stack[sp++] = next;
         next = a;
         goto enter;
       }
@@ -184,7 +207,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
       case DSU: {
         u32  loc = term_val(next);
         Term lab = HEAP[loc + 0];
-        STACK[S_POS++] = next;
+        stack[sp++] = next;
         next = lab;
         goto enter;
       }
@@ -192,7 +215,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
       case DDU: {
         u32  loc = term_val(next);
         Term lab = HEAP[loc + 0];
-        STACK[S_POS++] = next;
+        stack[sp++] = next;
         next = lab;
         goto enter;
       }
@@ -230,8 +253,8 @@ __attribute__((hot)) fn Term wnf(Term term) {
       printf("\n");
     }
 
-    while (S_POS > base) {
-      Term frame = STACK[--S_POS];
+    while (sp > base) {
+      Term frame = stack[--sp];
 
       switch (term_tag(frame)) {
         // -----------------------------------------------------------------------
@@ -271,12 +294,12 @@ __attribute__((hot)) fn Term wnf(Term term) {
             }
             case MAT:
             case SWI: {
-              STACK[S_POS++] = whnf;
+              stack[sp++] = whnf;
               next = arg;
               goto enter;
             }
             case USE: {
-              STACK[S_POS++] = whnf;
+              stack[sp++] = whnf;
               next = arg;
               goto enter;
             }
@@ -285,7 +308,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
               HEAP[app_loc + 0] = whnf;  // update heap so F_APP_RED can read it
               u32  red_loc = term_val(whnf);
               Term g       = HEAP[red_loc + 1];
-              STACK[S_POS++] = term_new(0, F_APP_RED, 0, app_loc);
+              stack[sp++] = term_new(0, F_APP_RED, 0, app_loc);
               next = g;
               goto enter;
             }
@@ -340,14 +363,14 @@ __attribute__((hot)) fn Term wnf(Term term) {
             case SWI: {
               // ((f ~> mat) x): store mat in RED's g slot, push F_RED_MAT, enter arg
               HEAP[red_loc + 1] = g;  // store mat where g was
-              STACK[S_POS++] = term_new(0, F_RED_MAT, 0, app_loc);
+              stack[sp++] = term_new(0, F_RED_MAT, 0, app_loc);
               next = arg;
               goto enter;
             }
             case USE: {
               // ((f ~> use) x): store use in RED's g slot, push F_RED_USE, enter arg
               HEAP[red_loc + 1] = g;
-              STACK[S_POS++] = term_new(0, F_RED_USE, 0, app_loc);
+              stack[sp++] = term_new(0, F_RED_USE, 0, app_loc);
               next = arg;
               goto enter;
             }
@@ -413,7 +436,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
               // (mat (g ~> h)): drop g, reduce (mat h)
               u32  red_loc = term_val(whnf);
               Term h = HEAP[red_loc + 1];
-              STACK[S_POS++] = mat;
+              stack[sp++] = mat;
               next = h;
               goto enter;
             }
@@ -475,7 +498,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
               // ((f ~> mat) (g ~> h)): drop g, reduce (mat h) in guarded context
               u32  arg_red_loc = term_val(whnf);
               Term h = HEAP[arg_red_loc + 1];
-              STACK[S_POS++] = frame;  // keep F_RED_MAT frame
+              stack[sp++] = frame;  // keep F_RED_MAT frame
               next = h;
               goto enter;
             }
@@ -509,7 +532,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
               // (use (g ~> h)): drop g, reduce (use h)
               u32  red_loc = term_val(whnf);
               Term h = HEAP[red_loc + 1];
-              STACK[S_POS++] = use;
+              stack[sp++] = use;
               next = h;
               goto enter;
             }
@@ -546,7 +569,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
               // ((f ~> use) (g ~> h)): drop g, reduce (use h) in guarded context
               u32  arg_red_loc = term_val(whnf);
               Term h = HEAP[arg_red_loc + 1];
-              STACK[S_POS++] = frame;  // keep F_RED_USE frame
+              stack[sp++] = frame;  // keep F_RED_USE frame
               next = h;
               goto enter;
             }
@@ -642,7 +665,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
             }
             case NUM: {
               // x is NUM, now reduce y: push F_OP2_NUM frame
-              STACK[S_POS++] = term_new(0, F_OP2_NUM, opr, term_val(whnf));
+              stack[sp++] = term_new(0, F_OP2_NUM, opr, term_val(whnf));
               next = y;
               goto enter;
             }
@@ -686,7 +709,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
               // (x op (f ~> g)): drop f, reduce (x op g)
               u32  red_loc = term_val(whnf);
               Term g = HEAP[red_loc + 1];
-              STACK[S_POS++] = frame;
+              stack[sp++] = frame;
               next = g;
               goto enter;
             }
@@ -730,7 +753,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
               // Store a's WHNF location, push F_EQL_R, enter b
               // We store a in HEAP[loc+0] for later retrieval
               HEAP[loc + 0] = whnf;
-              STACK[S_POS++] = term_new(0, F_EQL_R, 0, loc);
+              stack[sp++] = term_new(0, F_EQL_R, 0, loc);
               next = b;
               goto enter;
             }
@@ -948,5 +971,6 @@ __attribute__((hot)) fn Term wnf(Term term) {
     }
   }
 
+  S_POS = sp;
   return whnf;
 }

@@ -1,0 +1,14 @@
+// Parallel benchmark: binary recursion to depth 8 (256 leaves),
+// then sequential work per leaf.
+
+@seq  = 500000
+
+@spin = λn. λ{0:0; λx. @spin(x - 1)}(n)
+
+@tree = λd.
+  λ{
+    0: @spin(@seq);
+    λ&x. #P{ @tree(x - 1), @tree(x - 1) }
+  }(d)
+
+@main = @tree(8)

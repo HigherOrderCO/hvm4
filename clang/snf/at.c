@@ -4,7 +4,7 @@
 // by collapse to emit static terms.
 #define SNF_SEEN_MAX 65536
 // Tracks visited heap locations to avoid DP0/DP1 cycles.
-static u32 SNF_SEEN[SNF_SEEN_MAX];
+static _Thread_local u32 SNF_SEEN[SNF_SEEN_MAX];
 
 typedef struct {
   u32 seen_len;
@@ -26,10 +26,17 @@ fn Term snf_at(u32 loc, u32 depth, u8 quoted, SnfState *st) {
   u8 tag = term_tag(term);
   if (!quoted && (tag == DP0 || tag == DP1)) {
     u32 dup_loc = term_val(term);
-    if (dup_loc != 0 && !term_sub_get(HEAP[dup_loc])) {
-      for (u32 i = 0; i < st->seen_len; i++) {
-        if (SNF_SEEN[i] == dup_loc) {
-          return term;
+    if (dup_loc != 0) {
+      Term cell = heap_load_shared(dup_loc);
+      while (cell == 0) {
+        sched_yield();
+        cell = heap_load_shared(dup_loc);
+      }
+      if (!term_sub_get(cell)) {
+        for (u32 i = 0; i < st->seen_len; i++) {
+          if (SNF_SEEN[i] == dup_loc) {
+            return term;
+          }
         }
       }
     }
@@ -41,16 +48,23 @@ fn Term snf_at(u32 loc, u32 depth, u8 quoted, SnfState *st) {
 
   if (!quoted && (tag == DP0 || tag == DP1)) {
     u32 dup_loc = term_val(term);
-    if (dup_loc != 0 && !term_sub_get(HEAP[dup_loc])) {
-      u8 seen_dup = 0;
-      for (u32 i = 0; i < st->seen_len; i++) {
-        if (SNF_SEEN[i] == dup_loc) {
-          seen_dup = 1;
-          break;
-        }
+    if (dup_loc != 0) {
+      Term cell = heap_load_shared(dup_loc);
+      while (cell == 0) {
+        sched_yield();
+        cell = heap_load_shared(dup_loc);
       }
-      if (!seen_dup) {
-        snf_at(dup_loc, 0, quoted, st);
+      if (!term_sub_get(cell)) {
+        u8 seen_dup = 0;
+        for (u32 i = 0; i < st->seen_len; i++) {
+          if (SNF_SEEN[i] == dup_loc) {
+            seen_dup = 1;
+            break;
+          }
+        }
+        if (!seen_dup) {
+          snf_at(dup_loc, 0, quoted, st);
+        }
       }
     }
     return term;
