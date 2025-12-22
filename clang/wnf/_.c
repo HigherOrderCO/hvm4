@@ -23,12 +23,11 @@ __attribute__((hot)) fn Term wnf(Term term) {
     switch (term_tag(next)) {
       case VAR: {
         u32 loc = term_val(next);
-        Term cell = heap_take(loc);
+        Term cell = heap_get(loc);
         if (term_sub_get(cell)) {
           next = term_sub_set(cell, 0);
           goto enter;
         }
-        heap_set(loc, cell);
         whnf = next;
         goto apply;
       }
@@ -48,7 +47,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
 
       case APP: {
         u32  loc = term_val(next);
-        Term fun = heap_take(loc);
+        Term fun = heap_get(loc);
         stack[s_pos++] = next;
         next = fun;
         goto enter;
@@ -56,7 +55,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
 
       case DUP: {
         u32  loc  = term_val(next);
-        Term body = heap_take(loc + 1);
+        Term body = heap_get(loc + 1);
         next = body;
         goto enter;
       }
@@ -959,6 +958,13 @@ __attribute__((hot)) fn Term wnf(Term term) {
 
 fn Term wnf_at(u32 loc) {
   Term cur = heap_take(loc);
+  Term res = wnf(cur);
+  heap_set(loc, res);
+  return res;
+}
+
+fn Term wnf_at_get(u32 loc) {
+  Term cur = heap_get(loc);
   Term res = wnf(cur);
   heap_set(loc, res);
   return res;

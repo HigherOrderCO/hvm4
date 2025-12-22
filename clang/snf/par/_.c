@@ -173,8 +173,10 @@ static inline void snf_par_go(SnfCtx *C, SnfWorker *W, u32 tid, u32 loc, u32 dep
   if (!snf_seen_add(&W->seen, loc)) {
     return;
   }
+  u8 shared = 0;
   for (;;) {
-    Term term = wnf_at(loc);
+    Term term = shared ? wnf_at(loc) : wnf_at_get(loc);
+    shared = 0;
     u8 tag = term_tag(term);
     if (tag == DP0 || tag == DP1) {
       u32 dup_loc = term_val(term);
@@ -184,6 +186,7 @@ static inline void snf_par_go(SnfCtx *C, SnfWorker *W, u32 tid, u32 loc, u32 dep
         }
         loc = dup_loc;
         depth = 0;
+        shared = 1;
         continue;
       }
     }
