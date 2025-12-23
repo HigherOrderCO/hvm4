@@ -4,12 +4,10 @@
 // This file provides the command-line interface for the HVM4 runtime,
 // mirroring the structure of main.hs for the Haskell implementation.
 //
-// Usage: ./main <file.hvm4> [-s] [-S] [-C[N]] [-T<N>]
+// Usage: ./main <file.hvm4> [-s] [-C[N]]
 //   -s:  Show statistics (interactions, time, performance)
-//   -S:  Silent output (omit term printing)
 //   -C:  Collapse and flatten (enumerate all superposition branches)
 //   -CN: Collapse and flatten, limit to N results
-//   -T:  Use N threads (e.g. -T4)
 
 #include "hvm4.c"
 
@@ -18,45 +16,23 @@
 
 typedef struct {
   int   stats;
-  int   silent;
   int   do_collapse;
   int   collapse_limit;  // -1 means no limit
   int   debug;
-  int   threads;
   char *file;
 } CliOpts;
 
 fn CliOpts parse_opts(int argc, char **argv) {
-  CliOpts opts = {
-    .stats = 0,
-    .silent = 0,
-    .do_collapse = 0,
-    .collapse_limit = -1,
-    .debug = 0,
-    .threads = 0,
-    .file = NULL
-  };
+  CliOpts opts = { .stats = 0, .do_collapse = 0, .collapse_limit = -1, .debug = 0, .file = NULL };
 
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "-s") == 0) {
       opts.stats = 1;
-    } else if (strcmp(argv[i], "-S") == 0) {
-      opts.silent = 1;
     } else if (strncmp(argv[i], "-C", 2) == 0) {
       opts.do_collapse = 1;
       if (argv[i][2] != '\0') {
         opts.collapse_limit = atoi(&argv[i][2]);
       }
-    } else if (strncmp(argv[i], "-T", 2) == 0) {
-      const char *num = argv[i] + 2;
-      if (num[0] == '\0') {
-        if (i + 1 >= argc) {
-          fprintf(stderr, "Error: missing thread count after -T\n");
-          exit(1);
-        }
-        num = argv[++i];
-      }
-      opts.threads = atoi(num);
     } else if (strcmp(argv[i], "-d") == 0) {
       opts.debug = 1;
     } else if (argv[i][0] != '-') {
@@ -88,24 +64,19 @@ int main(int argc, char **argv) {
   CliOpts opts = parse_opts(argc, argv);
 
   if (opts.file == NULL) {
-    fprintf(stderr, "Usage: ./main <file.hvm4> [-s] [-S] [-C[N]] [-T<N>]\n");
+    fprintf(stderr, "Usage: ./main <file.hvm4> [-s] [-C[N]]\n");
     return 1;
   }
-
-  // Configure threads (default: 1)
-  u32 threads = opts.threads > 0 ? (u32)opts.threads : 1;
-  thread_set_count(threads);
-  wnf_set_tid(0);
 
   // Allocate memory
   BOOK  = calloc(BOOK_CAP, sizeof(u32));
   HEAP  = calloc(HEAP_CAP, sizeof(Term));
+  STACK = calloc(WNF_CAP, sizeof(Term));
   TABLE = calloc(BOOK_CAP, sizeof(char*));
 
-  if (!BOOK || !HEAP || !TABLE) {
+  if (!BOOK || !HEAP || !STACK || !TABLE) {
     sys_error("Memory allocation failed");
   }
-  heap_recompute();
 
   // Set debug mode
   DEBUG = opts.debug;
@@ -162,40 +133,30 @@ int main(int argc, char **argv) {
 
   if (opts.do_collapse) {
     // Lazy collapse + flatten: handles infinite structures
-    collapse_flatten(main_ref, opts.collapse_limit, opts.stats, opts.silent);
+    collapse_flatten(main_ref, opts.collapse_limit, opts.stats);
   } else {
     // Standard evaluation to strong normal form
     Term result = snf(main_ref, 0, 0);
-    if (!opts.silent) {
-      print_term(result);
-      printf("\n");
-    }
+    print_term(result);
+    printf("\n");
   }
 
   clock_gettime(CLOCK_MONOTONIC, &end);
 
   // Print stats if requested
-  u64 total_itrs = wnf_itrs_total();
   if (opts.stats) {
     double dt  = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
-    double ips = total_itrs / dt;
-    printf("- Itrs: %llu interactions\n", total_itrs);
-    if (thread_get_count() > 1) {
-      for (u32 t = 0; t < thread_get_count(); t++) {
-        printf("- Itrs[%u]: %llu interactions\n", t, wnf_itrs_thread(t));
-      }
-    }
+    double ips = ITRS / dt;
+    printf("- Itrs: %llu interactions\n", ITRS);
     printf("- Time: %.3f seconds\n", dt);
     printf("- Perf: %.2f M interactions/s\n", ips / 1e6);
-  } else if (opts.silent) {
-    printf("- Itrs: %llu interactions\n", total_itrs);
   }
 
   // Cleanup
   free(HEAP);
   free(BOOK);
+  free(STACK);
   free(TABLE);
-  wnf_stack_free_all();
 
   return 0;
 }

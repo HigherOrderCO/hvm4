@@ -8,26 +8,26 @@ fn Term wnf_dup_lam(u32 lab, u32 loc, u8 side, Term lam) {
   ITRS++;
   u32  lam_loc        = term_val(lam);
   u32  lam_ext        = term_ext(lam);
-  Term bod            = heap_get(lam_loc);
+  Term bod            = HEAP[lam_loc];
 
   if (lam_ext & LAM_ERA_MASK) {
     u64  a      = heap_alloc(3);
-    heap_set(a + 2, bod);
+    HEAP[a + 2] = bod;
     Copy B      = term_clone_at(a + 2, lab);
-    heap_set(a + 0, B.k0);
-    heap_set(a + 1, B.k1);
+    HEAP[a + 0] = B.k0;
+    HEAP[a + 1] = B.k1;
     Term l0     = term_new(0, LAM, lam_ext, a + 0);
     Term l1     = term_new(0, LAM, lam_ext, a + 1);
     return heap_subst_cop(side, loc, l0, l1);
   }
 
   u64  a       = heap_alloc(5);
-  heap_set(a + 4, bod);
+  HEAP[a + 4]  = bod;
   Copy B       = term_clone_at(a + 4, lab);
-  heap_set(a + 0, B.k0);
-  heap_set(a + 1, B.k1);
-  heap_set(a + 2, term_new(0, VAR, 0, a + 0));
-  heap_set(a + 3, term_new(0, VAR, 0, a + 1));
+  HEAP[a + 0]  = B.k0;
+  HEAP[a + 1]  = B.k1;
+  HEAP[a + 2]  = term_new(0, VAR, 0, a + 0);
+  HEAP[a + 3]  = term_new(0, VAR, 0, a + 1);
   Term su      = term_new(0, SUP, lab, a + 2);
   Term l0      = term_new(0, LAM, lam_ext, a + 0);
   Term l1      = term_new(0, LAM, lam_ext, a + 1);

@@ -7,7 +7,7 @@ fn Term wnf_app_red_mat_ctr_match(Term f, Term mat, Term ctr) {
   u32  ctr_loc = term_val(ctr);
   u32  ctr_nam = term_ext(ctr);
   u32  ctr_ari = term_tag(ctr) - C00;
-  Term h       = heap_get(mat_loc + 0);
+  Term h       = HEAP[mat_loc + 0];
 
   // Build: (λa.λb.(f #K{a,b}) ~> h) applied to ctr args
   u64 lam_locs[16];
@@ -21,7 +21,7 @@ fn Term wnf_app_red_mat_ctr_match(Term f, Term mat, Term ctr) {
   // Wrap in lambdas from inside out
   Term body = inner;
   for (int32_t i = ctr_ari - 1; i >= 0; i--) {
-    heap_set(lam_locs[i], body);
+    HEAP[lam_locs[i]] = body;
     body = term_new(0, LAM, 0, lam_locs[i]);
   }
 
@@ -30,7 +30,7 @@ fn Term wnf_app_red_mat_ctr_match(Term f, Term mat, Term ctr) {
 
   // Apply to original ctr args
   for (u32 i = 0; i < ctr_ari; i++) {
-    red_result = term_new_app(red_result, heap_get(ctr_loc + i));
+    red_result = term_new_app(red_result, HEAP[ctr_loc + i]);
   }
 
   return red_result;
@@ -42,6 +42,6 @@ fn Term wnf_app_red_mat_ctr_match(Term f, Term mat, Term ctr) {
 fn Term wnf_app_red_mat_ctr_miss(Term f, Term mat, Term ctr) {
   ITRS++;
   u32  mat_loc = term_val(mat);
-  Term m       = heap_get(mat_loc + 1);
+  Term m       = HEAP[mat_loc + 1];
   return term_new_app(term_new_red(f, m), ctr);
 }

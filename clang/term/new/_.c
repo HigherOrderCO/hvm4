@@ -1,6 +1,6 @@
 fn Term term_new_at(u32 loc, u8 tag, u32 ext, u32 ari, Term *args) {
   for (u32 i = 0; i < ari; i++) {
-    heap_set(loc + i, args[i]);
+    HEAP[loc + i] = args[i];
   }
   return term_new(0, tag, ext, loc);
 }

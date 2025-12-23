@@ -13,8 +13,8 @@ fn Term wnf_dup_sup(u32 lab, u32 loc, u8 side, Term sup) {
   u32 sup_loc = term_val(sup);
   u32 sup_lab = term_ext(sup);
   if (lab == sup_lab) {
-    Term tm0 = heap_get(sup_loc + 0);
-    Term tm1 = heap_get(sup_loc + 1);
+    Term tm0 = HEAP[sup_loc + 0];
+    Term tm1 = HEAP[sup_loc + 1];
     return heap_subst_cop(side, loc, tm0, tm1);
   } else {
     Copy A  = term_clone_at(sup_loc + 0, lab);

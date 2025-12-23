@@ -6,7 +6,7 @@ HVM4 is a high-performance runtime for the [Interaction Calculus](docs/theory/in
 
 ```bash
 # Build
-cd clang && clang -O2 -pthread -o main main.c
+cd clang && clang -O2 -o main main.c
 
 # Run a file (use collapse mode by default)
 ./clang/main test/file.hvm4 -s -C10

@@ -10,7 +10,7 @@ fn Term wnf_ddu_num(Term lab_num, Term val, Term bod) {
   Term dp1     = term_new_dp1(lab, dup_loc);
   Term app0    = term_new_app(bod, dp0);
   Term app1    = term_new_app(app0, dp1);
-  heap_set(dup_loc + 0, val);
-  heap_set(dup_loc + 1, app1);
+  HEAP[dup_loc + 0] = val;
+  HEAP[dup_loc + 1] = app1;
   return term_new(0, DUP, lab, dup_loc);
 }

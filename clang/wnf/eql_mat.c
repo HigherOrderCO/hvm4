@@ -17,10 +17,10 @@ fn Term wnf_eql_mat(Term a, Term b) {
 
   u32  a_loc = term_val(a);
   u32  b_loc = term_val(b);
-  Term ah    = heap_get(a_loc + 0);
-  Term am    = heap_get(a_loc + 1);
-  Term bh    = heap_get(b_loc + 0);
-  Term bm    = heap_get(b_loc + 1);
+  Term ah    = HEAP[a_loc + 0];
+  Term am    = HEAP[a_loc + 1];
+  Term bh    = HEAP[b_loc + 0];
+  Term bm    = HEAP[b_loc + 1];
 
   // (ah === bh) .&. (am === bm)
   Term eq_h = term_new_eql(ah, bh);

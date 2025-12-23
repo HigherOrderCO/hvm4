@@ -4,9 +4,9 @@
 fn Term wnf_eql_inc_l(Term inc, Term b) {
   ITRS++;
   u32  inc_loc = term_val(inc);
-  Term a       = heap_get(inc_loc);
+  Term a       = HEAP[inc_loc];
   Term eql     = term_new_eql(a, b);
-  heap_set(inc_loc, eql);
+  HEAP[inc_loc] = eql;
   return term_new(0, INC, 0, inc_loc);
 }
 
@@ -16,8 +16,8 @@ fn Term wnf_eql_inc_l(Term inc, Term b) {
 fn Term wnf_eql_inc_r(Term a, Term inc) {
   ITRS++;
   u32  inc_loc = term_val(inc);
-  Term b       = heap_get(inc_loc);
+  Term b       = HEAP[inc_loc];
   Term eql     = term_new_eql(a, b);
-  heap_set(inc_loc, eql);
+  HEAP[inc_loc] = eql;
   return term_new(0, INC, 0, inc_loc);
 }
