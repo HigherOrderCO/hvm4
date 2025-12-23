@@ -1,0 +1,4 @@
+// Test: INC inside lambda should not leak SUP in CNF
+@main = λx. ↑(&A{0, 1})
+//λa.0
+//λa.1
