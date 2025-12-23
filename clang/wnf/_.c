@@ -957,13 +957,6 @@ __attribute__((hot)) fn Term wnf(Term term) {
 }
 
 fn Term wnf_at(u32 loc) {
-  Term cur = heap_take(loc);
-  Term res = wnf(cur);
-  heap_set(loc, res);
-  return res;
-}
-
-fn Term wnf_at_get(u32 loc) {
   Term cur = heap_get(loc);
   Term res = wnf(cur);
   heap_set(loc, res);
