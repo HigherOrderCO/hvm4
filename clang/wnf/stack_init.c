@@ -5,7 +5,7 @@
 #endif
 
 fn void wnf_stack_init(void) {
-  WnfBank *bank = &WNF_BANKS[wnf_tid()];
+  WnfBank *bank = WNF_BANK;
   if (bank->stack) {
     return;
   }

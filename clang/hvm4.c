@@ -176,7 +176,6 @@ static u32 THREAD_COUNT = 1;
 
 #include "thread/get_count.c"
 #include "thread/set_count.c"
-#include "wnf/tid.c"
 
 // Heap Globals
 // ============
@@ -214,9 +213,13 @@ typedef struct __attribute__((aligned(256))) {
 } WnfItrsBank;
 
 static WnfItrsBank WNF_ITRS_BANKS[MAX_THREADS] = {{0}};
-#define WNF_STACK (WNF_BANKS[wnf_tid()].stack)
-#define WNF_S_POS (WNF_BANKS[wnf_tid()].s_pos)
-#define ITRS (WNF_ITRS_BANKS[wnf_tid()].itrs)
+static _Thread_local WnfBank *WNF_BANK = NULL;
+static _Thread_local u64 *WNF_ITRS_PTR = NULL;
+#define WNF_STACK (WNF_BANK->stack)
+#define WNF_S_POS (WNF_BANK->s_pos)
+#define ITRS (*WNF_ITRS_PTR)
+
+#include "wnf/tid.c"
 
 static int   DEBUG = 0;
 

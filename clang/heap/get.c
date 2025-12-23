@@ -3,5 +3,11 @@ fn Term heap_get_raw(u32 loc) {
 }
 
 fn Term heap_get(u32 loc) {
-  return heap_get_raw(loc);
+  for (;;) {
+    Term term = heap_get_raw(loc);
+    if (__builtin_expect(term != 0, 1)) {
+      return term;
+    }
+    cpu_relax();
+  }
 }

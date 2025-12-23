@@ -35,13 +35,16 @@ typedef struct {
 
 typedef struct { SnfCtx *C; u32 tid; } SnfArg;
 
-static inline u64 snf_task_pack(u32 loc, u32 depth) {
-  return ((u64)depth << 32) | (u64)loc;
+static inline u64 snf_task_pack(u32 loc, u32 depth, u8 shared) {
+  u32 depth_packed = (depth & 0x7FFFFFFFu) | (shared ? 0x80000000u : 0u);
+  return ((u64)depth_packed << 32) | (u64)loc;
 }
 
-static inline void snf_task_unpack(u64 t, u32 *loc, u32 *depth) {
-  *loc   = (u32)(t & 0xFFFFFFFFu);
-  *depth = (u32)(t >> 32);
+static inline void snf_task_unpack(u64 t, u32 *loc, u32 *depth, u8 *shared) {
+  *loc = (u32)(t & 0xFFFFFFFFu);
+  u32 depth_packed = (u32)(t >> 32);
+  *shared = (u8)((depth_packed >> 31) & 1u);
+  *depth = depth_packed & 0x7FFFFFFFu;
 }
 
 static inline void *snf_aligned_alloc(size_t alignment, size_t nbytes) {
@@ -153,30 +156,28 @@ static inline void snf_pending_dec(_Atomic u64 *p) {
   atomic_fetch_sub_explicit(p, 1, memory_order_release);
 }
 
-static inline void snf_par_go(SnfCtx *C, SnfWorker *W, u32 tid, u32 loc, u32 depth);
+static inline void snf_par_go(SnfCtx *C, SnfWorker *W, u32 tid, u32 loc, u32 depth, u8 shared);
 
-static inline void snf_par_enqueue(SnfCtx *C, SnfWorker *W, u32 tid, u32 loc, u32 depth) {
+static inline void snf_par_enqueue(SnfCtx *C, SnfWorker *W, u32 tid, u32 loc, u32 depth, u8 shared) {
   if (loc == 0) {
     return;
   }
-  if (snf_ws_push(&W->dq, snf_task_pack(loc, depth))) {
+  if (snf_ws_push(&W->dq, snf_task_pack(loc, depth, shared))) {
     snf_pending_inc(&C->pending);
   } else {
-    snf_par_go(C, W, tid, loc, depth);
+    snf_par_go(C, W, tid, loc, depth, shared);
   }
 }
 
-static inline void snf_par_go(SnfCtx *C, SnfWorker *W, u32 tid, u32 loc, u32 depth) {
+static inline void snf_par_go(SnfCtx *C, SnfWorker *W, u32 tid, u32 loc, u32 depth, u8 shared) {
   if (loc == 0) {
     return;
   }
   if (!snf_seen_add(&W->seen, loc)) {
     return;
   }
-  u8 shared = 0;
   for (;;) {
     Term term = shared ? wnf_at(loc) : wnf_at_get(loc);
-    shared = 0;
     u8 tag = term_tag(term);
     if (tag == DP0 || tag == DP1) {
       u32 dup_loc = term_val(term);
@@ -205,7 +206,7 @@ static inline void snf_par_go(SnfCtx *C, SnfWorker *W, u32 tid, u32 loc, u32 dep
       continue;
     }
     if (tag == DRY) {
-      snf_par_enqueue(C, W, tid, tloc + 1, depth);
+      snf_par_enqueue(C, W, tid, tloc + 1, depth, shared);
       if (!snf_seen_add(&W->seen, tloc)) {
         return;
       }
@@ -214,7 +215,7 @@ static inline void snf_par_go(SnfCtx *C, SnfWorker *W, u32 tid, u32 loc, u32 dep
     }
 
     for (u32 i = ari; i > 1; i--) {
-      snf_par_enqueue(C, W, tid, tloc + (i - 1), depth);
+      snf_par_enqueue(C, W, tid, tloc + (i - 1), depth, shared);
     }
     if (!snf_seen_add(&W->seen, tloc)) {
       return;
@@ -239,8 +240,9 @@ static void *snf_par_worker(void *ap) {
     if (snf_ws_pop(&W->dq, &task)) {
       u32 loc;
       u32 depth;
-      snf_task_unpack(task, &loc, &depth);
-      snf_par_go(C, W, me, loc, depth);
+      u8  shared;
+      snf_task_unpack(task, &loc, &depth, &shared);
+      snf_par_go(C, W, me, loc, depth, shared);
       snf_pending_dec(&C->pending);
       continue;
     }
@@ -260,8 +262,9 @@ static void *snf_par_worker(void *ap) {
       if (snf_ws_steal(&C->W[vic].dq, &task)) {
         u32 loc;
         u32 depth;
-        snf_task_unpack(task, &loc, &depth);
-        snf_par_go(C, W, me, loc, depth);
+        u8  shared;
+        snf_task_unpack(task, &loc, &depth, &shared);
+        snf_par_go(C, W, me, loc, depth, shared);
         snf_pending_dec(&C->pending);
         stolen = true;
         break;
@@ -301,7 +304,6 @@ fn Term snf_par(Term term, u32 depth, u8 quoted) {
   }
   C.n = n;
   atomic_store_explicit(&C.pending, 0, memory_order_relaxed);
-
   for (u32 i = 0; i < n; i++) {
     if (!snf_ws_init(&C.W[i].dq, SNF_WS_CAP_POW2)) {
       fprintf(stderr, "snf: queue allocation failed\n");
@@ -311,10 +313,10 @@ fn Term snf_par(Term term, u32 depth, u8 quoted) {
   }
 
   SnfWorker *W0 = &C.W[0];
-  if (snf_ws_push(&W0->dq, snf_task_pack(root_loc, depth))) {
+  if (snf_ws_push(&W0->dq, snf_task_pack(root_loc, depth, 0))) {
     atomic_store_explicit(&C.pending, 1, memory_order_relaxed);
   } else {
-    snf_par_go(&C, W0, 0, root_loc, depth);
+    snf_par_go(&C, W0, 0, root_loc, depth, 0);
   }
 
   pthread_t tids[MAX_THREADS];
