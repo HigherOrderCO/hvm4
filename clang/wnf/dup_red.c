@@ -6,6 +6,7 @@
 // X₁ ← F₁ ~> G₁
 fn Term wnf_dup_red(u32 lab, u32 loc, u8 side, Term red) {
   ITRS++;
+  ITRS_KIND(WNF_ITRS_DUP_RED);
   u32  r_loc = term_val(red);
   Copy F     = term_clone(lab, heap_read(r_loc + 0));
   Copy G     = term_clone(lab, heap_read(r_loc + 1));

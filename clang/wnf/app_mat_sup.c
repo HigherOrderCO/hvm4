@@ -6,6 +6,7 @@
 //   ,(λ{#K:H₁; M₁} b)}
 fn Term wnf_app_mat_sup(Term mat, Term sup) {
   ITRS++;
+  ITRS_KIND(WNF_ITRS_APP_MAT_SUP);
   u32  lab = term_ext(sup);
   Copy M   = term_clone(lab, mat);
   u32  loc = term_val(sup);

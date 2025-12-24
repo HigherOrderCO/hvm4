@@ -6,6 +6,7 @@
 // ! G &L = f
 fn Term wnf_dup_lam(u32 lab, u32 loc, u8 side, Term lam) {
   ITRS++;
+  ITRS_KIND(WNF_ITRS_DUP_LAM);
   u32  lam_loc        = term_val(lam);
   u32  lam_ext        = term_ext(lam);
   Term bod            = heap_read(lam_loc);

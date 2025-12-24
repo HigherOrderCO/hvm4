@@ -3,6 +3,7 @@
 // ↑(a === b)
 fn Term wnf_eql_inc_l(Term inc, Term b) {
   ITRS++;
+  ITRS_KIND(WNF_ITRS_EQL_INC);
   u32  inc_loc = term_val(inc);
   Term a       = heap_read(inc_loc);
   Term eql     = term_new_eql(a, b);
@@ -15,6 +16,7 @@ fn Term wnf_eql_inc_l(Term inc, Term b) {
 // ↑(a === b)
 fn Term wnf_eql_inc_r(Term a, Term inc) {
   ITRS++;
+  ITRS_KIND(WNF_ITRS_EQL_INC);
   u32  inc_loc = term_val(inc);
   Term b       = heap_read(inc_loc);
   Term eql     = term_new_eql(a, b);

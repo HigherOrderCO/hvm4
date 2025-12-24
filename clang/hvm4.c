@@ -217,6 +217,7 @@ static _Thread_local u64 *WNF_ITRS_PTR = NULL;
 #define ITRS (*WNF_ITRS_PTR)
 static u32 FRESH = 1;
 
+#include "wnf/itrs_kind.c"
 #include "wnf/tid.c"
 
 static int   DEBUG = 0;

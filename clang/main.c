@@ -7,6 +7,7 @@
 // Usage: ./main <file.hvm4> [-s] [-S] [-C[N]] [-T<N>]
 //   -s:  Show statistics (interactions, time, performance)
 //   -S:  Silent output (omit term printing)
+//   -I:  Show interactions per kind (requires -s)
 //   -C:  Collapse and flatten (enumerate all superposition branches)
 //   -CN: Collapse and flatten, limit to N results
 //   -T:  Use N threads (e.g. -T4)
@@ -21,6 +22,7 @@ typedef struct {
   int   silent;
   int   do_collapse;
   int   collapse_limit;  // -1 means no limit
+  int   itrs_kind;
   int   debug;
   int   threads;
   char *file;
@@ -32,6 +34,7 @@ fn CliOpts parse_opts(int argc, char **argv) {
     .silent = 0,
     .do_collapse = 0,
     .collapse_limit = -1,
+    .itrs_kind = 0,
     .debug = 0,
     .threads = 0,
     .file = NULL
@@ -42,6 +45,8 @@ fn CliOpts parse_opts(int argc, char **argv) {
       opts.stats = 1;
     } else if (strcmp(argv[i], "-S") == 0) {
       opts.silent = 1;
+    } else if (strcmp(argv[i], "-I") == 0) {
+      opts.itrs_kind = 1;
     } else if (strncmp(argv[i], "-C", 2) == 0) {
       opts.do_collapse = 1;
       if (argv[i][2] != '\0') {
@@ -185,6 +190,15 @@ int main(int argc, char **argv) {
         printf("- Itrs[%u]: %llu interactions\n", t, wnf_itrs_thread(t));
       }
     }
+#ifdef ITRS_BY_KIND
+    if (opts.itrs_kind) {
+      wnf_itrs_kind_dump();
+    }
+#else
+    if (opts.itrs_kind) {
+      printf("- Itrs: per-kind counts require ITRS_BY_KIND build\n");
+    }
+#endif
     printf("- Time: %.3f seconds\n", dt);
     printf("- Perf: %.2f M interactions/s\n", ips / 1e6);
   } else if (opts.silent) {

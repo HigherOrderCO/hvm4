@@ -3,6 +3,7 @@
 // ↑(f x)
 fn Term wnf_app_inc(Term app, Term inc) {
   ITRS++;
+  ITRS_KIND(WNF_ITRS_APP_INC);
   u32  app_loc = term_val(app);
   u32  inc_loc = term_val(inc);
   Term f       = heap_read(inc_loc);

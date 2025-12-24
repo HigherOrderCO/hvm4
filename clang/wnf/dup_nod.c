@@ -7,6 +7,7 @@
 // X₁ ← T{A₁,B₁,...}
 fn Term wnf_dup_nod(u32 lab, u32 loc, u8 side, Term term) {
   ITRS++;
+  ITRS_KIND(WNF_ITRS_DUP_NOD);
   u32 ari = term_arity(term);
   if (ari == 0) {
     heap_subst_var(loc, term);
@@ -15,9 +16,11 @@ fn Term wnf_dup_nod(u32 lab, u32 loc, u8 side, Term term) {
   u32  t_loc = term_val(term);
   u32  t_ext = term_ext(term);
   u8   t_tag = term_tag(term);
+  u64  vals  = heap_alloc(ari);
   Term args0[16], args1[16];
   for (u32 i = 0; i < ari; i++) {
-    Copy A   = term_clone(lab, heap_read(t_loc + i));
+    heap_set(vals + i, heap_read(t_loc + i));
+    Copy A   = term_clone_at(vals + i, lab);
     args0[i] = A.k0;
     args1[i] = A.k1;
   }

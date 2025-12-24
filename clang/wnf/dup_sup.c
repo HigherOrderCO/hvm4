@@ -10,6 +10,7 @@
 //   X₁ ← &R{A₁,B₁}
 fn Term wnf_dup_sup(u32 lab, u32 loc, u8 side, Term sup) {
   ITRS++;
+  ITRS_KIND(WNF_ITRS_DUP_SUP);
   u32 sup_loc = term_val(sup);
   u32 sup_lab = term_ext(sup);
   if (lab == sup_lab) {
@@ -17,11 +18,13 @@ fn Term wnf_dup_sup(u32 lab, u32 loc, u8 side, Term sup) {
     Term tm1 = heap_read(sup_loc + 1);
     return heap_subst_cop(side, loc, tm0, tm1);
   } else {
-    Copy A  = term_clone(lab, heap_read(sup_loc + 0));
-    Copy B  = term_clone(lab, heap_read(sup_loc + 1));
-    u64  a  = heap_alloc(4);
-    Term s0 = term_new_sup_at(a + 0, sup_lab, A.k0, B.k0);
-    Term s1 = term_new_sup_at(a + 2, sup_lab, A.k1, B.k1);
+    u64  a  = heap_alloc(6);
+    heap_set(a + 0, heap_read(sup_loc + 0));
+    heap_set(a + 1, heap_read(sup_loc + 1));
+    Copy A  = term_clone_at(a + 0, lab);
+    Copy B  = term_clone_at(a + 1, lab);
+    Term s0 = term_new_sup_at(a + 2, sup_lab, A.k0, B.k0);
+    Term s1 = term_new_sup_at(a + 4, sup_lab, A.k1, B.k1);
     return heap_subst_cop(side, loc, s0, s1);
   }
 }

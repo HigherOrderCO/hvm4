@@ -3,6 +3,7 @@
 // ↑(use x)
 fn Term wnf_use_inc(Term use, Term inc) {
   ITRS++;
+  ITRS_KIND(WNF_ITRS_USE_INC);
   u32  inc_loc = term_val(inc);
   Term x       = heap_read(inc_loc);
   Term app     = term_new_app(use, x);

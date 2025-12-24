@@ -6,6 +6,7 @@
 //   ,((F₁ ~> λ{G₁}) b)}
 fn Term wnf_app_red_use_sup(Term f, Term use, Term sup) {
   ITRS++;
+  ITRS_KIND(WNF_ITRS_APP_RED_USE_SUP);
   u32  use_loc = term_val(use);
   u32  sup_loc = term_val(sup);
   u32  lab     = term_ext(sup);

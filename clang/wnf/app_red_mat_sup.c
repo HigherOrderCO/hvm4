@@ -7,6 +7,7 @@
 //   ,((F₁ ~> λ{#K:H₁; M₁}) b)}
 fn Term wnf_app_red_mat_sup(Term f, Term mat, Term sup) {
   ITRS++;
+  ITRS_KIND(WNF_ITRS_APP_RED_MAT_SUP);
   u32  mat_loc = term_val(mat);
   u32  mat_nam = term_ext(mat);
   u32  sup_loc = term_val(sup);

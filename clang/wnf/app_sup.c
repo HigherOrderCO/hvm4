@@ -4,6 +4,7 @@
 // &L{(f A₀),(g A₁)}
 fn Term wnf_app_sup(Term app, Term sup) {
   ITRS++;
+  ITRS_KIND(WNF_ITRS_APP_SUP);
   u32  app_loc = term_val(app);
   u32  sup_loc = term_val(sup);
   u32  lab     = term_ext(sup);

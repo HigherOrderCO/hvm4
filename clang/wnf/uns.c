@@ -3,6 +3,7 @@
 // t(λy.λ$x.y, $x)
 fn Term wnf_uns(Term uns) {
   ITRS++;
+  ITRS_KIND(WNF_ITRS_UNS);
   u32  uns_loc = term_val(uns);
   Term bod     = heap_read(uns_loc + 0);
   u64  loc     = heap_alloc(2);

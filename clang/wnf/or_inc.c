@@ -3,6 +3,7 @@
 // ↑(a | b)
 fn Term wnf_or_inc(Term inc, Term b) {
   ITRS++;
+  ITRS_KIND(WNF_ITRS_OR_INC);
   u32  inc_loc = term_val(inc);
   Term a       = heap_read(inc_loc);
   Term or_tm   = term_new_or(a, b);

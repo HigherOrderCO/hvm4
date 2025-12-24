@@ -7,6 +7,7 @@
 // #0
 fn Term wnf_eql_nam(Term a, Term b) {
   ITRS++;
+  ITRS_KIND(WNF_ITRS_EQL_NAM);
   u8  a_tag = term_tag(a);
   u8  b_tag = term_tag(b);
   u32 a_ext = term_ext(a);

@@ -403,12 +403,14 @@ __attribute__((hot)) fn Term wnf(Term term) {
             case NUM: {
               // (mat #n): compare ext(mat) to val(num)
               ITRS++;
-              u32  loc = term_val(mat);
-              Term f   = heap_read(loc + 0);
-              Term g   = heap_read(loc + 1);
-              if (term_ext(mat) == term_val(whnf)) {
-                next = f;
+              ITRS_KIND(WNF_ITRS_MAT_NUM);
+              u32 loc = term_val(mat);
+              u32 ext = term_ext(mat);
+              u32 val = term_val(whnf);
+              if (ext == val) {
+                next = heap_read(loc + 0);
               } else {
+                Term g = heap_read(loc + 1);
                 next = term_new_app(g, whnf);
               }
               goto enter;
@@ -813,6 +815,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
               }
               // Otherwise: not equal
               ITRS++;
+              ITRS_KIND(WNF_ITRS_EQL_NEQ);
               whnf = term_new_num(0);
               continue;
             }

@@ -3,6 +3,7 @@
 // ↑(x op y)
 fn Term wnf_op2_inc_x(u32 opr, Term inc, Term y) {
   ITRS++;
+  ITRS_KIND(WNF_ITRS_OP2_INC);
   u32  inc_loc = term_val(inc);
   Term x       = heap_read(inc_loc);
   Term op      = term_new_op2(opr, x, y);
@@ -15,6 +16,7 @@ fn Term wnf_op2_inc_x(u32 opr, Term inc, Term y) {
 // ↑(#n op y)
 fn Term wnf_op2_inc_y(u32 opr, Term x, Term inc) {
   ITRS++;
+  ITRS_KIND(WNF_ITRS_OP2_INC);
   u32  inc_loc = term_val(inc);
   Term y       = heap_read(inc_loc);
   Term op      = term_new_op2(opr, x, y);

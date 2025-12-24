@@ -3,6 +3,7 @@
 // ↑(λ{...} x)
 fn Term wnf_mat_inc(Term mat, Term inc) {
   ITRS++;
+  ITRS_KIND(WNF_ITRS_MAT_INC);
   u32  inc_loc = term_val(inc);
   Term x       = heap_read(inc_loc);
   Term app     = term_new_app(mat, x);

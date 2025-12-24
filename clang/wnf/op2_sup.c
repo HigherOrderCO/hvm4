@@ -4,6 +4,7 @@
 // &L{@@opr(a,Y₀), @@opr(b,Y₁)}
 fn Term wnf_op2_sup(u32 opr, Term sup, Term y) {
   ITRS++;
+  ITRS_KIND(WNF_ITRS_OP2_SUP);
   u32  lab     = term_ext(sup);
   u32  sup_loc = term_val(sup);
   Copy Y       = term_clone(lab, y);

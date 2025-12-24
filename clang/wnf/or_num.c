@@ -7,6 +7,7 @@
 // #1
 fn Term wnf_or_num(Term num, Term b) {
   ITRS++;
+  ITRS_KIND(WNF_ITRS_OR_NUM);
   u32 val = term_val(num);
   if (val == 0) {
     return b;

@@ -3,12 +3,15 @@
 // #(a opr b)
 fn Term wnf_op2_num_num(u32 opr, Term x, Term y) {
   ITRS++;
+  ITRS_KIND(WNF_ITRS_OP2_NUM_NUM);
   u32 a = term_val(x);
   u32 b = term_val(y);
+  if (__builtin_expect(opr == OP_SUB, 1)) {
+    return term_new_num(a - b);
+  }
   u32 result;
   switch (opr) {
     case OP_ADD: result = a + b; break;
-    case OP_SUB: result = a - b; break;
     case OP_MUL: result = a * b; break;
     case OP_DIV: result = b != 0 ? a / b : 0; break;
     case OP_MOD: result = b != 0 ? a % b : 0; break;

@@ -5,6 +5,7 @@
 // &L{! X &(x) = V₀; B₀, ! X &(y) = V₁; B₁}
 fn Term wnf_ddu_sup(Term lab_sup, Term val, Term bod) {
   ITRS++;
+  ITRS_KIND(WNF_ITRS_DDU_SUP);
   u32  lab     = term_ext(lab_sup);
   u32  sup_loc = term_val(lab_sup);
   Copy V       = term_clone(lab, val);

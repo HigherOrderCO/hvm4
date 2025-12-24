@@ -7,6 +7,7 @@
 // #0
 fn Term wnf_eql_mat(Term a, Term b) {
   ITRS++;
+  ITRS_KIND(WNF_ITRS_EQL_MAT);
   u32 a_ext = term_ext(a);
   u32 b_ext = term_ext(b);
 
