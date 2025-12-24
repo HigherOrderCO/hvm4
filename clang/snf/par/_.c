@@ -107,14 +107,12 @@ static void *snf_par_worker(void *arg) {
 
   u32 r = 0x9E3779B9u ^ me;
 
-  u32 idle = 0;
   for (;;) {
     u32 loc;
 
     if (wsq_pop(&worker->dq, &loc)) {
       snf_par_go(ctx, worker, loc);
       snf_pending_dec(&ctx->pending);
-      idle = 0;
       continue;
     }
 
@@ -134,7 +132,6 @@ static void *snf_par_worker(void *arg) {
         snf_par_go(ctx, worker, loc);
         snf_pending_dec(&ctx->pending);
         stolen = true;
-        idle = 0;
         break;
       }
     }
@@ -147,13 +144,7 @@ static void *snf_par_worker(void *arg) {
       break;
     }
 
-    if (idle < 1024) {
-      cpu_relax();
-      idle++;
-    } else {
-      sched_yield();
-      idle = 0;
-    }
+    sched_yield();
   }
 
   return NULL;
