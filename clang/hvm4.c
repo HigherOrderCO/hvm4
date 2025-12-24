@@ -180,12 +180,14 @@ static u32 THREAD_COUNT = 1;
 // Heap Globals
 // ============
 
+typedef struct __attribute__((aligned(128))) {
+  u64 start;
+  u64 end;
+  u64 next;
+} HeapBank;
+
 static Term    *HEAP;
-#define HEAP_STRIDE 32
-static u64      HEAP_NEXT[MAX_THREADS * HEAP_STRIDE] __attribute__((aligned(256))) = {0};
-static u64      HEAP_END[MAX_THREADS * HEAP_STRIDE] __attribute__((aligned(256))) = {0};
-#define HEAP_NEXT_AT(t) HEAP_NEXT[(t) * HEAP_STRIDE]
-#define HEAP_END_AT(t)  HEAP_END[(t) * HEAP_STRIDE]
+static HeapBank HEAP_BANKS[MAX_THREADS] = {{0}};
 
 // Book Globals
 // ============

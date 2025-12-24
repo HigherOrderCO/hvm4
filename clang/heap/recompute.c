@@ -17,13 +17,15 @@ fn void heap_recompute(void) {
     if (t == 0 && start == 0) {
       start = 1;
     }
-    HEAP_NEXT_AT(t) = start;
-    HEAP_END_AT(t) = end;
+    HEAP_BANKS[t].start = start;
+    HEAP_BANKS[t].end   = end;
+    HEAP_BANKS[t].next  = start;
     at += bank_sz;
   }
 
   for (u32 t = threads; t < MAX_THREADS; t++) {
-    HEAP_NEXT_AT(t) = 0;
-    HEAP_END_AT(t) = 0;
+    HEAP_BANKS[t].start = 0;
+    HEAP_BANKS[t].end   = 0;
+    HEAP_BANKS[t].next  = 0;
   }
 }

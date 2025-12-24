@@ -57,7 +57,7 @@ static inline void snf_par_go(SnfCtx *ctx, SnfWorker *worker, u32 loc) {
     u8 tag = term_tag(term);
     if (tag == DP0 || tag == DP1) {
       u32 dup_loc = term_val(term);
-      if (dup_loc != 0 && !term_sub_get(heap_peek(dup_loc))) {
+      if (dup_loc != 0 && !term_sub_get(heap_read(dup_loc))) {
         if (!u32_set_add(&worker->seen, dup_loc)) {
           return;
         }
@@ -86,6 +86,7 @@ static inline void snf_par_go(SnfCtx *ctx, SnfWorker *worker, u32 loc) {
       loc = tloc;
       continue;
     }
+
     for (u32 i = ari; i > 1; i--) {
       snf_par_enqueue(ctx, worker, tloc + (i - 1));
     }

@@ -17,7 +17,7 @@ fn Term snf_at(u32 loc, u32 depth, u8 quoted, SnfState *st) {
   u8 tag = term_tag(term);
   if (!quoted && (tag == DP0 || tag == DP1)) {
     u32 dup_loc = term_val(term);
-    if (dup_loc != 0 && !term_sub_get(heap_peek(dup_loc))) {
+    if (dup_loc != 0 && !term_sub_get(heap_read(dup_loc))) {
       if (u32_set_has(&st->seen, dup_loc)) {
         return term;
       }
@@ -30,7 +30,7 @@ fn Term snf_at(u32 loc, u32 depth, u8 quoted, SnfState *st) {
 
   if (!quoted && (tag == DP0 || tag == DP1)) {
     u32 dup_loc = term_val(term);
-    if (dup_loc != 0 && !term_sub_get(heap_peek(dup_loc))) {
+    if (dup_loc != 0 && !term_sub_get(heap_read(dup_loc))) {
       if (!u32_set_has(&st->seen, dup_loc)) {
         snf_at(dup_loc, 0, quoted, st);
       }
