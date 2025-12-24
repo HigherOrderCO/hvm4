@@ -23,11 +23,12 @@ __attribute__((hot)) fn Term wnf(Term term) {
     switch (term_tag(next)) {
       case VAR: {
         u32 loc = term_val(next);
-        Term cell = heap_read(loc);
+        Term cell = heap_take(loc);
         if (term_sub_get(cell)) {
           next = term_sub_set(cell, 0);
           goto enter;
         }
+        heap_set(loc, cell);
         whnf = next;
         goto apply;
       }
@@ -37,6 +38,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
         u32 loc = term_val(next);
         Term cell = heap_take(loc);
         if (term_sub_get(cell)) {
+          heap_set(loc, cell);
           next = term_sub_set(cell, 0);
           goto enter;
         }

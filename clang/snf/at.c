@@ -2,7 +2,7 @@
 // When `quoted` is set, linked vars (VAR/DP0/DP1) become BJV/BJ0/BJ1 indices
 // and the binders store their de Bruijn level in LAM.ext or BJ*. This is used
 // by collapse to emit static terms.
-#define SNF_SEEN_INIT (1u << 18)
+#define SNF_SEEN_INIT (1u << 20)
 
 typedef struct {
   U32Set seen;
