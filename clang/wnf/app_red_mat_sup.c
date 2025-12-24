@@ -11,10 +11,10 @@ fn Term wnf_app_red_mat_sup(Term f, Term mat, Term sup) {
   u32  mat_nam = term_ext(mat);
   u32  sup_loc = term_val(sup);
   u32  lab     = term_ext(sup);
-  Term h       = heap_get(mat_loc + 0);
-  Term m       = heap_get(mat_loc + 1);
-  Term a       = heap_get(sup_loc + 0);
-  Term b       = heap_get(sup_loc + 1);
+  Term h       = heap_read(mat_loc + 0);
+  Term m       = heap_read(mat_loc + 1);
+  Term a       = heap_read(sup_loc + 0);
+  Term b       = heap_read(sup_loc + 1);
   Copy F       = term_clone(lab, f);
   Copy H       = term_clone(lab, h);
   Copy M       = term_clone(lab, m);

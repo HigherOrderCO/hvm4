@@ -10,14 +10,14 @@ typedef struct {
 
 fn Term snf_at(u32 loc, u32 depth, u8 quoted, SnfState *st) {
   if (!u32_set_add(&st->seen, loc)) {
-    return heap_get(loc);
+    return heap_read(loc);
   }
 
-  Term term = heap_get(loc);
+  Term term = heap_read(loc);
   u8 tag = term_tag(term);
   if (!quoted && (tag == DP0 || tag == DP1)) {
     u32 dup_loc = term_val(term);
-    if (dup_loc != 0 && !term_sub_get(heap_get_raw(dup_loc))) {
+    if (dup_loc != 0 && !term_sub_get(heap_read(dup_loc))) {
       if (u32_set_has(&st->seen, dup_loc)) {
         return term;
       }
@@ -30,7 +30,7 @@ fn Term snf_at(u32 loc, u32 depth, u8 quoted, SnfState *st) {
 
   if (!quoted && (tag == DP0 || tag == DP1)) {
     u32 dup_loc = term_val(term);
-    if (dup_loc != 0 && !term_sub_get(heap_get_raw(dup_loc))) {
+    if (dup_loc != 0 && !term_sub_get(heap_read(dup_loc))) {
       if (!u32_set_has(&st->seen, dup_loc)) {
         snf_at(dup_loc, 0, quoted, st);
       }
@@ -41,8 +41,8 @@ fn Term snf_at(u32 loc, u32 depth, u8 quoted, SnfState *st) {
   if (quoted && tag == DUP) {
     u32 dup_term_loc = term_val(term);
     u32 lab     = term_ext(term);
-    Term val    = heap_get(dup_term_loc + 0);
-    Term bod    = heap_get(dup_term_loc + 1);
+    Term val    = heap_read(dup_term_loc + 0);
+    Term bod    = heap_read(dup_term_loc + 1);
     u32 level   = depth + 1;
     Term bj0    = term_new(0, BJ0, lab, level);
     Term bj1    = term_new(0, BJ1, lab, level);
@@ -52,8 +52,8 @@ fn Term snf_at(u32 loc, u32 depth, u8 quoted, SnfState *st) {
     snf_at((u32)val_loc, depth, quoted, st);
     snf_at(dup_term_loc + 1, depth + 1, quoted, st);
     u64 out_loc = heap_alloc(2);
-    heap_set(out_loc + 0, heap_get(val_loc));
-    heap_set(out_loc + 1, heap_get(dup_term_loc + 1));
+    heap_set(out_loc + 0, heap_read(val_loc));
+    heap_set(out_loc + 1, heap_read(dup_term_loc + 1));
     term = term_new(0, DUP, lab, out_loc);
     heap_set(loc, term);
     return term;
@@ -84,13 +84,13 @@ fn Term snf_at(u32 loc, u32 depth, u8 quoted, SnfState *st) {
   u32 tloc = term_val(term);
   if (tag == LAM) {
     if (quoted) {
-      Term body  = heap_get(tloc);
+      Term body  = heap_read(tloc);
       u32  level = depth + 1;
       heap_subst_var(tloc, term_new(0, BJV, 0, level));
       u64 tmp_loc = heap_alloc(1);
       heap_set(tmp_loc, body);
       snf_at((u32)tmp_loc, depth + 1, quoted, st);
-      heap_set(tloc, heap_get(tmp_loc));
+      heap_set(tloc, heap_read(tmp_loc));
       term = term_new(0, LAM, level, tloc);
       heap_set(loc, term);
     } else {

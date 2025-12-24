@@ -31,21 +31,21 @@ fn Term wnf_eql_ctr(Term a, Term b) {
 
   // SUC (1n+): recursive natural - wrap in INC for priority
   if (a_ext == NAM_SUC && arity == 1) {
-    Term eq = term_new_eql(heap_get(a_loc), heap_get(b_loc));
+    Term eq = term_new_eql(heap_read(a_loc), heap_read(b_loc));
     return term_new_inc(eq);
   }
 
   // CON (<>): recursive list - wrap tail and whole in INC
   if (a_ext == NAM_CON && arity == 2) {
-    Term eq_h = term_new_eql(heap_get(a_loc), heap_get(b_loc));
-    Term eq_t = term_new_inc(term_new_eql(heap_get(a_loc + 1), heap_get(b_loc + 1)));
+    Term eq_h = term_new_eql(heap_read(a_loc), heap_read(b_loc));
+    Term eq_t = term_new_inc(term_new_eql(heap_read(a_loc + 1), heap_read(b_loc + 1)));
     return term_new_inc(term_new_and(eq_h, eq_t));
   }
 
   // Other constructors: no INC, just AND chain
-  Term result = term_new_eql(heap_get(a_loc), heap_get(b_loc));
+  Term result = term_new_eql(heap_read(a_loc), heap_read(b_loc));
   for (u32 i = 1; i < arity; i++) {
-    Term eq_i = term_new_eql(heap_get(a_loc + i), heap_get(b_loc + i));
+    Term eq_i = term_new_eql(heap_read(a_loc + i), heap_read(b_loc + i));
     result = term_new_and(result, eq_i);
   }
   return result;

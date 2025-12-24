@@ -39,12 +39,12 @@ fn Term collapse_step(Term term) {
     case RED: {
       // For RED, collapse the rhs (g) side only
       u64 loc = term_val(term);
-      return collapse_step(heap_get(loc + 1));
+      return collapse_step(heap_read(loc + 1));
     }
 
     case LAM: {
       u64  lam_loc = term_val(term);
-      Term body    = heap_get(lam_loc);
+      Term body    = heap_read(lam_loc);
 
       // Recursively collapse the body to find SUPs
       Term body_collapsed = collapse_step(body);
@@ -64,8 +64,8 @@ fn Term collapse_step(Term term) {
       // We need to handle variable binding correctly using dup_lam pattern
       u32  lab     = term_ext(body_collapsed);
       u64  sup_loc = term_val(body_collapsed);
-      Term sup_a   = heap_get(sup_loc + 0);
-      Term sup_b   = heap_get(sup_loc + 1);
+      Term sup_a   = heap_read(sup_loc + 0);
+      Term sup_b   = heap_read(sup_loc + 1);
 
       // Allocate: 2 lambda bodies (for fresh binders)
       u64 loc0 = heap_alloc(1);
@@ -105,7 +105,7 @@ fn Term collapse_step(Term term) {
       Term children[16];
 
       for (u32 i = 0; i < ari; i++) {
-        children[i] = collapse_step(heap_get(loc + i));
+        children[i] = collapse_step(heap_read(loc + i));
         heap_set(loc + i, children[i]);
 
         // ERA propagation: if any child is ERA, whole node is ERA
@@ -129,8 +129,8 @@ fn Term collapse_step(Term term) {
       Term sup     = children[sup_idx];
       u32  lab     = term_ext(sup);
       u64  sup_loc = term_val(sup);
-      Term sup_a   = heap_get(sup_loc + 0);
-      Term sup_b   = heap_get(sup_loc + 1);
+      Term sup_a   = heap_read(sup_loc + 0);
+      Term sup_b   = heap_read(sup_loc + 1);
 
       // Build two versions of the node
       Term args0[16], args1[16];

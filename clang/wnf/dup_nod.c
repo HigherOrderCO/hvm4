@@ -17,7 +17,7 @@ fn Term wnf_dup_nod(u32 lab, u32 loc, u8 side, Term term) {
   u8   t_tag = term_tag(term);
   Term args0[16], args1[16];
   for (u32 i = 0; i < ari; i++) {
-    Copy A   = term_clone(lab, heap_get(t_loc + i));
+    Copy A   = term_clone(lab, heap_read(t_loc + i));
     args0[i] = A.k0;
     args1[i] = A.k1;
   }

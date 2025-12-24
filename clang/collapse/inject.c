@@ -10,8 +10,8 @@ fn Term collapse_inject(Term template, Term *args, u32 n_args) {
   if (term_tag(head) == SUP) {
     u32  lab     = term_ext(head);
     u64  sup_loc = term_val(head);
-    Term sup_a   = heap_get(sup_loc + 0);
-    Term sup_b   = heap_get(sup_loc + 1);
+    Term sup_a   = heap_read(sup_loc + 0);
+    Term sup_b   = heap_read(sup_loc + 1);
 
     Copy T = term_clone(lab, template);
     Term args0[16], args1[16];

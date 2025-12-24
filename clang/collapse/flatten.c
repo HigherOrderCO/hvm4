@@ -23,14 +23,14 @@ fn void collapse_flatten(Term term, int limit, int show_itrs, int silent) {
     u8  pri = it.pri;
 
     // Lazy collapse: lift SUPs one step at a time
-    Term t = collapse_step(heap_get(loc));
+    Term t = collapse_step(heap_read(loc));
     heap_set(loc, t);
 
     // INC fast-path: peel chain of INC wrappers, decrementing priority
     while (term_tag(t) == INC) {
       u32 inc_loc = term_val(t);
       loc = inc_loc;
-      t = collapse_step(heap_get(loc));
+      t = collapse_step(heap_read(loc));
       heap_set(loc, t);
       if (pri > 0) pri--;  // decrement priority, clamped at 0
     }

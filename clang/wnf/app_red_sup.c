@@ -8,8 +8,8 @@ fn Term wnf_app_red_sup(Term f, Term sup, Term arg) {
   ITRS++;
   u32  sup_loc = term_val(sup);
   u32  lab     = term_ext(sup);
-  Term x       = heap_get(sup_loc + 0);
-  Term y       = heap_get(sup_loc + 1);
+  Term x       = heap_read(sup_loc + 0);
+  Term y       = heap_read(sup_loc + 1);
   Copy F       = term_clone(lab, f);
   Copy A       = term_clone(lab, arg);
   Term r0      = term_new_app(term_new_red(F.k0, x), A.k0);

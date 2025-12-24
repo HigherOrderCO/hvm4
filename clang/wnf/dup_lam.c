@@ -8,7 +8,7 @@ fn Term wnf_dup_lam(u32 lab, u32 loc, u8 side, Term lam) {
   ITRS++;
   u32  lam_loc        = term_val(lam);
   u32  lam_ext        = term_ext(lam);
-  Term bod            = heap_get(lam_loc);
+  Term bod            = heap_read(lam_loc);
 
   if (lam_ext & LAM_ERA_MASK) {
     u64  a      = heap_alloc(3);

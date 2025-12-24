@@ -4,7 +4,7 @@
 fn Term wnf_uns(Term uns) {
   ITRS++;
   u32  uns_loc = term_val(uns);
-  Term bod     = heap_get(uns_loc + 0);
+  Term bod     = heap_read(uns_loc + 0);
   u64  loc     = heap_alloc(2);
   Term x_var   = term_new_var(loc + 0);
   Term y_var   = term_new_var(loc + 1);

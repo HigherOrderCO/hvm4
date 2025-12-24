@@ -8,5 +8,5 @@ fn Term snf(Term term, u32 depth, u8 quoted) {
   heap_set(root_loc, term);
   snf_at(root_loc, depth, quoted, &st);
   u32_set_free(&st.seen);
-  return heap_get(root_loc);
+  return heap_read(root_loc);
 }

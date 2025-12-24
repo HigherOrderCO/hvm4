@@ -5,8 +5,8 @@ fn Term wnf_app_inc(Term app, Term inc) {
   ITRS++;
   u32  app_loc = term_val(app);
   u32  inc_loc = term_val(inc);
-  Term f       = heap_get(inc_loc);
-  Term x       = heap_get(app_loc + 1);
+  Term f       = heap_read(inc_loc);
+  Term x       = heap_read(app_loc + 1);
   // Reuse inc_loc for the new app, build new inc at app_loc
   heap_set(inc_loc + 0, f);
   // Need to allocate since app has 2 slots, inc has 1

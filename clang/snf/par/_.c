@@ -57,7 +57,7 @@ static inline void snf_par_go(SnfCtx *ctx, SnfWorker *worker, u32 loc) {
     u8 tag = term_tag(term);
     if (tag == DP0 || tag == DP1) {
       u32 dup_loc = term_val(term);
-      if (dup_loc != 0 && !term_sub_get(heap_get_raw(dup_loc))) {
+      if (dup_loc != 0 && !term_sub_get(heap_read(dup_loc))) {
         if (!u32_set_add(&worker->seen, dup_loc)) {
           return;
         }
@@ -205,5 +205,5 @@ fn Term snf_par(Term term, u32 depth, u8 quoted) {
     u32_set_free(&ctx.W[i].seen);
   }
 
-  return heap_get(root_loc);
+  return heap_read(root_loc);
 }
