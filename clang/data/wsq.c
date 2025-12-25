@@ -15,7 +15,7 @@ typedef struct {
 typedef struct __attribute__((aligned(128))) {
   WsqIdx top;
   WsqIdx bot;
-  _Alignas(WSQ_L1) u32 *buf;
+  _Alignas(WSQ_L1) u64 *buf;
   size_t mask;
   size_t cap;
 } WsDeque;
@@ -32,7 +32,7 @@ static inline void *wsq_aligned_alloc(size_t alignment, size_t nbytes) {
 
 static inline int wsq_init(WsDeque *q, u32 capacity_pow2) {
   size_t cap = (size_t)1 << capacity_pow2;
-  q->buf = (u32 *)wsq_aligned_alloc(WSQ_L1, cap * sizeof(u32));
+  q->buf = (u64 *)wsq_aligned_alloc(WSQ_L1, cap * sizeof(u64));
   if (!q->buf) {
     return 0;
   }
@@ -50,7 +50,7 @@ static inline void wsq_free(WsDeque *q) {
   }
 }
 
-static inline int wsq_push(WsDeque *q, u32 x) {
+static inline int wsq_push(WsDeque *q, u64 x) {
   size_t b = atomic_load_explicit(&q->bot.v, memory_order_relaxed);
   size_t t = atomic_load_explicit(&q->top.v, memory_order_acquire);
   if (b - t >= q->cap) {
@@ -62,7 +62,7 @@ static inline int wsq_push(WsDeque *q, u32 x) {
   return 1;
 }
 
-static inline int wsq_pop(WsDeque *q, u32 *out) {
+static inline int wsq_pop(WsDeque *q, u64 *out) {
   size_t b = atomic_load_explicit(&q->bot.v, memory_order_relaxed);
   if (b == 0) {
     return 0;
@@ -74,7 +74,7 @@ static inline int wsq_pop(WsDeque *q, u32 *out) {
 
   size_t t = atomic_load_explicit(&q->top.v, memory_order_acquire);
   if (t <= b1) {
-    u32 x = q->buf[b1 & q->mask];
+    u64 x = q->buf[b1 & q->mask];
     if (t == b1) {
       size_t expected = t;
       bool ok = atomic_compare_exchange_strong_explicit(
@@ -98,14 +98,14 @@ static inline int wsq_pop(WsDeque *q, u32 *out) {
   }
 }
 
-static inline int wsq_steal(WsDeque *q, u32 *out) {
+static inline int wsq_steal(WsDeque *q, u64 *out) {
   size_t t = atomic_load_explicit(&q->top.v, memory_order_acquire);
   size_t b = atomic_load_explicit(&q->bot.v, memory_order_acquire);
   if (t >= b) {
     return 0;
   }
   __builtin_prefetch(&q->buf[t & q->mask], 0, 1);
-  u32 x = q->buf[t & q->mask];
+  u64 x = q->buf[t & q->mask];
   size_t expected = t;
   bool ok = atomic_compare_exchange_strong_explicit(
     &q->top.v,

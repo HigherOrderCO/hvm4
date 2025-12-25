@@ -74,9 +74,9 @@ Quoted binders are terms encoded with de Bruijn levels in `EXT` (and for BJ0/BJ1
 the dup label). Their variables are BJV/BJ0/BJ1 indices, so there are no heap
 links and no interaction with APP-LAM or DUP-SUP.
 
-When the SNF "quote" flag is enabled, linked LAM/DUP binders are converted into
-quoted LAM/DUP binders, and free VAR/DP0/DP1 become BJV/BJ0/BJ1 at the current
-level. This is used to turn interaction nets into full lambda terms.
+During collapse printing, lambdas substitute their binders to quoted variables,
+so free VAR/DP0/DP1 become BJV/BJ0/BJ1 at the current level. This is used to
+turn interaction nets into full lambda terms.
 
 ## Dynamic vs Static Terms
 

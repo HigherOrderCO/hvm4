@@ -42,7 +42,7 @@ fn void collapse_flatten(Term term, int limit, int show_itrs, int silent) {
       collapse_queue_push(&pq, (CollapseQueueItem){.pri = (u8)(pri + 1), .loc = sup_loc + 1});
     } else if (term_tag(t) != ERA) {
       // Non-SUP, non-ERA result - normalize and print
-      t = snf(t, 0, 1);
+      t = snf(t);
       if (!silent) {
         print_term_quoted(t);
         if (show_itrs) {

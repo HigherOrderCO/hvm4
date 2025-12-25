@@ -1,4 +1,4 @@
-fn void heap_recompute(void) {
+fn void heap_init_slices(void) {
   u32 threads = thread_get_count();
   if (threads == 0) {
     threads = 1;

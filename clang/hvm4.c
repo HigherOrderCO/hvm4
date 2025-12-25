@@ -277,7 +277,7 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 #include "heap/take.c"
 #include "heap/set.c"
 #include "heap/write.c"
-#include "heap/recompute.c"
+#include "heap/init_slices.c"
 
 // Data Structures
 // ===============
@@ -493,8 +493,6 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 // SNF
 // ===
 
-#include "snf/at.c"
-#include "snf/par/_.c"
 #include "snf/_.c"
 
 // Collapse
