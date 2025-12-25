@@ -7,9 +7,13 @@
 fn Term wnf_dup_red(u32 lab, u32 loc, u8 side, Term red) {
   ITRS++;
   u32  r_loc = term_val(red);
-  Copy F     = term_clone(lab, heap_read(r_loc + 0));
-  Copy G     = term_clone(lab, heap_read(r_loc + 1));
-  Term r0    = term_new_red(F.k0, G.k0);
-  Term r1    = term_new_red(F.k1, G.k1);
+  u64  base  = heap_alloc(6);
+  u32  at    = (u32)base;
+  heap_set(at + 0, heap_read(r_loc + 0));
+  heap_set(at + 1, heap_read(r_loc + 1));
+  Copy F     = term_clone_at(at + 0, lab);
+  Copy G     = term_clone_at(at + 1, lab);
+  Term r0    = term_new_red_at(at + 2, F.k0, G.k0);
+  Term r1    = term_new_red_at(at + 4, F.k1, G.k1);
   return heap_subst_cop(side, loc, r0, r1);
 }

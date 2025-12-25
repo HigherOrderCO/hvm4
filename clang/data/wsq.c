@@ -56,6 +56,7 @@ static inline int wsq_push(WsDeque *q, u32 x) {
   if (b - t >= q->cap) {
     return 0;
   }
+  __builtin_prefetch(&q->buf[b & q->mask], 1, 1);
   q->buf[b & q->mask] = x;
   atomic_store_explicit(&q->bot.v, b + 1, memory_order_release);
   return 1;
@@ -67,6 +68,7 @@ static inline int wsq_pop(WsDeque *q, u32 *out) {
     return 0;
   }
   size_t b1 = b - 1;
+  __builtin_prefetch(&q->buf[b1 & q->mask], 0, 1);
   atomic_store_explicit(&q->bot.v, b1, memory_order_release);
   atomic_thread_fence(memory_order_acq_rel);
 
@@ -102,6 +104,7 @@ static inline int wsq_steal(WsDeque *q, u32 *out) {
   if (t >= b) {
     return 0;
   }
+  __builtin_prefetch(&q->buf[t & q->mask], 0, 1);
   u32 x = q->buf[t & q->mask];
   size_t expected = t;
   bool ok = atomic_compare_exchange_strong_explicit(

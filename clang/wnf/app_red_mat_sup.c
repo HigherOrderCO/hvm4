@@ -15,12 +15,19 @@ fn Term wnf_app_red_mat_sup(Term f, Term mat, Term sup) {
   Term m       = heap_read(mat_loc + 1);
   Term a       = heap_read(sup_loc + 0);
   Term b       = heap_read(sup_loc + 1);
-  Copy F       = term_clone(lab, f);
-  Copy H       = term_clone(lab, h);
-  Copy M       = term_clone(lab, m);
-  Term mat0    = term_new_mat(mat_nam, H.k0, M.k0);
-  Term mat1    = term_new_mat(mat_nam, H.k1, M.k1);
-  Term r0      = term_new_app(term_new_red(F.k0, mat0), a);
-  Term r1      = term_new_app(term_new_red(F.k1, mat1), b);
-  return term_new_sup(lab, r0, r1);
+  u64  base    = heap_alloc(17);
+  u32  at      = (u32)base;
+  heap_set(at + 0, f);
+  heap_set(at + 1, h);
+  heap_set(at + 2, m);
+  Copy F       = term_clone_at(at + 0, lab);
+  Copy H       = term_clone_at(at + 1, lab);
+  Copy M       = term_clone_at(at + 2, lab);
+  Term mat0    = term_new_mat_at(at + 3, mat_nam, H.k0, M.k0);
+  Term mat1    = term_new_mat_at(at + 5, mat_nam, H.k1, M.k1);
+  Term red0    = term_new_red_at(at + 7, F.k0, mat0);
+  Term red1    = term_new_red_at(at + 9, F.k1, mat1);
+  Term app0    = term_new_app_at(at + 11, red0, a);
+  Term app1    = term_new_app_at(at + 13, red1, b);
+  return term_new_sup_at(at + 15, lab, app0, app1);
 }

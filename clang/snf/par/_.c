@@ -24,6 +24,8 @@ typedef struct {
   u32 tid;
 } SnfArg;
 
+static inline void snf_par_go(SnfCtx *ctx, SnfWorker *worker, u32 loc);
+
 static inline void snf_pending_inc(_Atomic u64 *pending) {
   atomic_fetch_add_explicit(pending, 1, memory_order_relaxed);
 }
@@ -31,8 +33,6 @@ static inline void snf_pending_inc(_Atomic u64 *pending) {
 static inline void snf_pending_dec(_Atomic u64 *pending) {
   atomic_fetch_sub_explicit(pending, 1, memory_order_release);
 }
-
-static inline void snf_par_go(SnfCtx *ctx, SnfWorker *worker, u32 loc);
 
 static inline void snf_par_enqueue(SnfCtx *ctx, SnfWorker *worker, u32 loc) {
   if (loc == 0) {
