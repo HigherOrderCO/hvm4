@@ -41,9 +41,11 @@ for file in "${bench_files[@]}"; do
   printf "%-*s" "$name_w" "$file"
   for t in "${threads[@]}"; do
     extra_args=()
-    if [ "$(basename "$file")" = "gen_medium.hvm4" ]; then
-      extra_args+=("-C1")
-    fi
+    case "$(basename "$file")" in
+      gen_*.hvm4 )
+        extra_args+=("-C1")
+        ;;
+    esac
     out=$(timeout "$TIMEOUT" "$MAIN" "$file" -s -S -T"$t" "${extra_args[@]+"${extra_args[@]}"}" 2>&1)
     status=$?
     if [ $status -eq 124 ]; then

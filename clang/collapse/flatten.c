@@ -11,6 +11,9 @@
 #ifndef COLL_WS_STEAL_BATCH
 #define COLL_WS_STEAL_BATCH 8u
 #endif
+#ifndef COLLAPSE_STACK_SIZE
+#define COLLAPSE_STACK_SIZE (64u * 1024u * 1024u)
+#endif
 
 typedef struct {
   _Alignas(WSQ_L1) _Atomic u64     printed;
@@ -33,13 +36,13 @@ static inline void coll_process_loc(CollCtx *C, u32 me, u8 pri, u32 loc, int64_t
       return;
     }
 
-    Term t = collapse_step(heap_read(loc), 0);
+    Term t = collapse_step(heap_take(loc), 0);
     heap_set(loc, t);
 
     while (term_tag(t) == INC) {
       u32 inc_loc = term_val(t);
       loc = inc_loc;
-      t = collapse_step(heap_read(loc), 0);
+      t = collapse_step(heap_take(loc), 0);
       heap_set(loc, t);
       if (pri > 0) {
         pri -= 1;
@@ -222,11 +225,15 @@ fn void collapse_flatten(Term term, int limit, int show_itrs, int silent) {
 
   pthread_t tids[MAX_THREADS];
   CollArg args[MAX_THREADS];
+  pthread_attr_t attr;
+  pthread_attr_init(&attr);
+  pthread_attr_setstacksize(&attr, (size_t)COLLAPSE_STACK_SIZE);
   for (u32 i = 1; i < n; ++i) {
     args[i].ctx = &C;
     args[i].tid = i;
-    pthread_create(&tids[i], NULL, collapse_flatten_worker, &args[i]);
+    pthread_create(&tids[i], &attr, collapse_flatten_worker, &args[i]);
   }
+  pthread_attr_destroy(&attr);
 
   CollArg arg0 = { .ctx = &C, .tid = 0 };
   collapse_flatten_worker(&arg0);

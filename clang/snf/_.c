@@ -5,7 +5,7 @@
 #include <stdbool.h>
 
 #ifndef SNF_WS_CAP_POW2
-#define SNF_WS_CAP_POW2 18
+#define SNF_WS_CAP_POW2 21
 #endif
 
 #define SNF_SEEN_INIT (1u << 20)
@@ -47,17 +47,23 @@ static inline void snf_par_go(SnfCtx *ctx, SnfWorker *worker, u64 task) {
   if (!u32_set_add(&worker->seen, loc)) {
     return;
   }
+  bool parallel = ctx->n > 1;
   for (;;) {
     Term term = wnf_at(loc);
     u8 tag = term_tag(term);
     if (tag == DP0 || tag == DP1) {
       u32 dup_loc = term_val(term);
       if (dup_loc != 0 && !term_sub_get(heap_peek(dup_loc))) {
-        if (!u32_set_add(&worker->seen, dup_loc)) {
+        if (parallel) {
+          snf_par_enqueue(ctx, worker, SNF_TASK(dup_loc));
           return;
+        } else {
+          if (!u32_set_add(&worker->seen, dup_loc)) {
+            return;
+          }
+          loc = dup_loc;
+          continue;
         }
-        loc = dup_loc;
-        continue;
       }
     }
 
@@ -66,6 +72,21 @@ static inline void snf_par_go(SnfCtx *ctx, SnfWorker *worker, u64 task) {
       return;
     }
     u32 tloc = term_val(term);
+    if (parallel) {
+      if (tag == DRY) {
+        snf_par_enqueue(ctx, worker, SNF_TASK(tloc + 1));
+        snf_par_enqueue(ctx, worker, SNF_TASK(tloc));
+        return;
+      }
+      if (tag == LAM) {
+        snf_par_enqueue(ctx, worker, SNF_TASK(tloc));
+        return;
+      }
+      for (u32 i = 0; i < ari; i++) {
+        snf_par_enqueue(ctx, worker, SNF_TASK(tloc + i));
+      }
+      return;
+    }
     if (tag == LAM) {
       if (!u32_set_add(&worker->seen, tloc)) {
         return;

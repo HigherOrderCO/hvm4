@@ -6,6 +6,10 @@
 #define COLL_WS_BRACKETS 64u
 #endif
 
+#ifndef COLL_WS_CAP_POW2
+#define COLL_WS_CAP_POW2 21u
+#endif
+
 typedef struct __attribute__((aligned(256))) {
   WsDeque q[COLL_WS_BRACKETS];
   _Atomic u64 nonempty;
@@ -36,30 +40,8 @@ static inline u8 coll_ws_pri_clamp(u32 pri) {
 }
 
 static inline u32 coll_ws_cap_pow2(u32 nthreads) {
-  u32 threads = nthreads;
-  if (threads == 0) {
-    threads = 1;
-  }
-  u32 approx = (1u << 20) / threads;
-  if (approx < (1u << 12)) {
-    approx = (1u << 12);
-  }
-
-  u64 cap = (u64)approx;
-  cap -= 1;
-  cap |= cap >> 1;
-  cap |= cap >> 2;
-  cap |= cap >> 4;
-  cap |= cap >> 8;
-  cap |= cap >> 16;
-  cap |= cap >> 32;
-  cap += 1;
-
-  u32 pow2 = 0;
-  while (((u64)1 << pow2) < cap) {
-    pow2 += 1;
-  }
-  return pow2;
+  (void)nthreads;
+  return COLL_WS_CAP_POW2;
 }
 
 static inline bool coll_ws_init(CollWs *ws, u32 nthreads) {
