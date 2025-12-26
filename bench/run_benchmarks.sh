@@ -43,7 +43,7 @@ for file in "${bench_files[@]}"; do
     if [ "$(basename "$file")" = "gen_medium.hvm4" ]; then
       extra_args+=("-C1")
     fi
-    out=$(timeout "$TIMEOUT" "$MAIN" "$file" -s -S -T"$t" "${extra_args[@]}" 2>&1)
+    out=$(timeout "$TIMEOUT" "$MAIN" "$file" -s -S -T"$t" "${extra_args[@]+"${extra_args[@]}"}" 2>&1)
     status=$?
     if [ $status -eq 124 ]; then
       val="timeout"
