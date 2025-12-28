@@ -1,6 +1,7 @@
 // Eval collapse (CNF flattening).
-// - Lazy CNF extraction via priority queue traversal.
-// - INC nodes decrease priority (explored earlier), SUP nodes increase priority.
+// - Lazy CNF extraction via key queue traversal.
+// - Lower numeric keys are popped first.
+// - INC decreases key (explored earlier), SUP increases key.
 // - Uses cnf to handle infinite structures without stack overflow.
 
 #ifndef EVAL_COLLAPSE_STEAL_PERIOD
@@ -28,7 +29,7 @@ typedef struct {
   u32 tid;
 } EvalCollapseArg;
 
-static inline void eval_collapse_process_loc(EvalCollapseCtx *C, u32 me, u8 pri, u32 loc, int64_t *pend_local) {
+static inline void eval_collapse_process_loc(EvalCollapseCtx *C, u32 me, u8 key, u32 loc, int64_t *pend_local) {
   for (;;) {
     if (atomic_load_explicit(&C->stop, memory_order_acquire)) {
       return;
@@ -49,16 +50,16 @@ static inline void eval_collapse_process_loc(EvalCollapseCtx *C, u32 me, u8 pri,
         if (t != prev) {
           heap_set(loc, t);
         }
-        if (pri > 0) {
-          pri -= 1;
+        if (key > 0) {
+          key -= 1;
         }
         continue;
       }
       case SUP: {
         u32 sup_loc = term_val(t);
-        u8  npri = (u8)(pri + 1);
+        u8  nkey = (u8)(key + 1);
         u64 task = ((u64)(sup_loc + 1) << 32) | (u64)(sup_loc + 0);
-        wspq_push(&C->ws, me, npri, task);
+        wspq_push(&C->ws, me, nkey, task);
         *pend_local += 2;
         return;
       }
@@ -103,19 +104,19 @@ static void *eval_collapse_worker(void *arg) {
       break;
     }
 
-    u8  pri = 0;
+    u8  key = 0;
     u64 task = 0;
-    bool has_local = wspq_pop(&C->ws, me, &pri, &task);
+    bool has_local = wspq_pop(&C->ws, me, &key, &task);
     if (has_local) {
       u32 loc0 = (u32)task;
       u32 loc1 = (u32)(task >> 32);
       if (loc0 != 0) {
-        eval_collapse_process_loc(C, me, pri, loc0, &pend_local);
+        eval_collapse_process_loc(C, me, key, loc0, &pend_local);
         pend_local -= 1;
         iter += 1u;
       }
       if (loc1 != 0) {
-        eval_collapse_process_loc(C, me, pri, loc1, &pend_local);
+        eval_collapse_process_loc(C, me, key, loc1, &pend_local);
         pend_local -= 1;
         iter += 1u;
       }
@@ -160,14 +161,14 @@ static inline void eval_collapse_seq(Term term, int limit, int show_itrs, int si
 
   u32 root_loc = heap_alloc(1);
   heap_set(root_loc, term);
-  pq_push(&pq, (PqItem){.pri = 0, .loc = root_loc});
+  pq_push(&pq, (PqItem){.key = 0, .loc = root_loc});
 
   int count = 0;
   PqItem it;
 
   while (pq_pop(&pq, &it) && (limit < 0 || count < limit)) {
     u32 loc = it.loc;
-    u8  pri = it.pri;
+    u8  key = it.key;
 
     Term t = cnf(heap_read(loc));
     heap_set(loc, t);
@@ -179,15 +180,16 @@ static inline void eval_collapse_seq(Term term, int limit, int show_itrs, int si
           loc = inc_loc;
           t = cnf(heap_read(loc));
           heap_set(loc, t);
-          if (pri > 0) {
-            pri -= 1;
+          if (key > 0) {
+            key -= 1;
           }
           continue;
         }
         case SUP: {
           u32 sup_loc = term_val(t);
-          pq_push(&pq, (PqItem){.pri = (u8)(pri + 1), .loc = sup_loc + 0});
-          pq_push(&pq, (PqItem){.pri = (u8)(pri + 1), .loc = sup_loc + 1});
+          u8 nkey = (u8)(key + 1);
+          pq_push(&pq, (PqItem){.key = nkey, .loc = sup_loc + 0});
+          pq_push(&pq, (PqItem){.key = nkey, .loc = sup_loc + 1});
           break;
         }
         case ERA: {

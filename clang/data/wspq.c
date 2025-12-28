@@ -1,17 +1,17 @@
-// data/wspq.c - work-stealing priority queue built on wsq buckets.
+// data/wspq.c - work-stealing key queue built on wsq buckets.
 //
 // Context
 // - Used by eval_collapse for parallel CNF enumeration.
-// - Each worker owns a bank of deques, one per priority bracket.
+// - Lower numeric keys are popped first.
 //
 // Design
-// - Priority "pri" is bucketed by (pri >> WSPQ_PRI_SHIFT).
+// - Key "key" is bucketed by (key >> WSPQ_KEY_SHIFT).
 // - A per-worker bitmask tracks which buckets are non-empty.
-// - Local pop takes the lowest-index non-empty bucket (best priority).
-// - Steal prefers higher-priority work and can be restricted to shallower buckets.
+// - Local pop takes the lowest-index non-empty bucket (best key).
+// - Steal prefers lower-key work and can be restricted to shallower buckets.
 //
 // Notes
-// - Tasks are u64 values; priority is an 8-bit hint.
+// - Tasks are u64 values; key is an 8-bit hint.
 // - Not a general multi-producer queue: each worker pushes to its own bank.
 // - wsq buffers are fixed size; push spins if a bucket is temporarily full.
 
@@ -19,14 +19,14 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-// Number of priority buckets (must be <= 64 for the bitmask).
+// Number of key buckets (must be <= 64 for the bitmask).
 #ifndef WSPQ_BRACKETS
 #define WSPQ_BRACKETS 64u
 #endif
 
-// Priority right shift to map pri -> bucket index.
-#ifndef WSPQ_PRI_SHIFT
-#define WSPQ_PRI_SHIFT 0u
+// Key right shift to map key -> bucket index.
+#ifndef WSPQ_KEY_SHIFT
+#define WSPQ_KEY_SHIFT 0u
 #endif
 
 // Per-bucket deque capacity (log2).
@@ -39,13 +39,13 @@
 #define WSPQ_STEAL_ATTEMPTS 2u
 #endif
 
-// Per-worker bank of priority deques plus a non-empty bucket mask.
+// Per-worker bank of key deques plus a non-empty bucket mask.
 typedef struct __attribute__((aligned(256))) {
   WsDeque q[WSPQ_BRACKETS];
   _Atomic u64 nonempty;
 } WspqBank;
 
-// Work-stealing priority queue state for all workers.
+// Work-stealing key queue state for all workers.
 typedef struct {
   WspqBank bank[MAX_THREADS];
   u32 n;
@@ -66,9 +66,9 @@ static inline void wspq_mask_clear_owner(Wspq *ws, u32 tid, u32 b) {
   atomic_fetch_and_explicit(&ws->bank[tid].nonempty, ~(1ull << b), memory_order_relaxed);
 }
 
-// Map a priority value to a bucket index.
-static inline u8 wspq_pri_bucket(u32 pri) {
-  u32 bucket = pri >> WSPQ_PRI_SHIFT;
+// Map a key value to a bucket index.
+static inline u8 wspq_key_bucket(u32 key) {
+  u32 bucket = key >> WSPQ_KEY_SHIFT;
   if (bucket >= WSPQ_BRACKETS) {
     return (u8)(WSPQ_BRACKETS - 1u);
   }
@@ -109,11 +109,11 @@ static inline void wspq_free(Wspq *ws) {
 }
 
 // Push a task into the owner's bucket; spins until the bucket accepts it.
-static inline void wspq_push(Wspq *ws, u32 tid, u8 pri, u64 task) {
+static inline void wspq_push(Wspq *ws, u32 tid, u8 key, u64 task) {
   if (task == 0) {
     return;
   }
-  u8 bucket = wspq_pri_bucket(pri);
+  u8 bucket = wspq_key_bucket(key);
   WsDeque *q = &ws->bank[tid].q[bucket];
   while (!wsq_push(q, task)) {
     cpu_relax();
@@ -121,8 +121,8 @@ static inline void wspq_push(Wspq *ws, u32 tid, u8 pri, u64 task) {
   wspq_mask_set(ws, tid, bucket);
 }
 
-// Pop the best-priority local task; returns false if none are available.
-static inline bool wspq_pop(Wspq *ws, u32 tid, u8 *pri, u64 *task) {
+// Pop the best-key local task; returns false if none are available.
+static inline bool wspq_pop(Wspq *ws, u32 tid, u8 *key, u64 *task) {
   u64 m = atomic_load_explicit(&ws->bank[tid].nonempty, memory_order_relaxed);
   if (m == 0ull) {
     return false;
@@ -131,7 +131,7 @@ static inline bool wspq_pop(Wspq *ws, u32 tid, u8 *pri, u64 *task) {
     u32 b = wspq_lsb64(m);
     u64 x = 0;
     if (wsq_pop(&ws->bank[tid].q[b], &x)) {
-      *pri = (u8)(b << WSPQ_PRI_SHIFT);
+      *key = (u8)(b << WSPQ_KEY_SHIFT);
       *task = x;
       return true;
     }
@@ -141,7 +141,7 @@ static inline bool wspq_pop(Wspq *ws, u32 tid, u8 *pri, u64 *task) {
   return false;
 }
 
-// Steal up to max_batch tasks from other workers, favoring higher priority.
+// Steal up to max_batch tasks from other workers, favoring lower keys.
 static inline u32 wspq_steal_some(
   Wspq *ws,
   u32     me,
@@ -187,13 +187,13 @@ static inline u32 wspq_steal_some(
     if (!wsq_steal(&ws->bank[v].q[b], &x)) {
       continue;
     }
-    wspq_push(ws, me, (u8)(b << WSPQ_PRI_SHIFT), x);
+    wspq_push(ws, me, (u8)(b << WSPQ_KEY_SHIFT), x);
     got += 1u;
     for (; got < max_batch; ++got) {
       if (!wsq_steal(&ws->bank[v].q[b], &x)) {
         break;
       }
-      wspq_push(ws, me, (u8)(b << WSPQ_PRI_SHIFT), x);
+      wspq_push(ws, me, (u8)(b << WSPQ_KEY_SHIFT), x);
     }
     *cursor = v + 1;
     return got;
