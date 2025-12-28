@@ -8,6 +8,7 @@
 // - Key "key" is bucketed by (key >> WSPQ_KEY_SHIFT).
 // - A per-worker bitmask tracks which buckets are non-empty.
 // - Local pop takes the lowest-index non-empty bucket (best key).
+// - Single-threaded pop uses FIFO order within a bucket for determinism.
 // - Steal prefers lower-key work and can be restricted to shallower buckets.
 //
 // Notes
@@ -127,10 +128,11 @@ static inline bool wspq_pop(Wspq *ws, u32 tid, u8 *key, u64 *task) {
   if (m == 0ull) {
     return false;
   }
+  bool fifo = (ws->n == 1);
   while (m) {
     u32 b = wspq_lsb64(m);
     u64 x = 0;
-    if (wsq_pop(&ws->bank[tid].q[b], &x)) {
+    if (fifo ? wsq_steal(&ws->bank[tid].q[b], &x) : wsq_pop(&ws->bank[tid].q[b], &x)) {
       *key = (u8)(b << WSPQ_KEY_SHIFT);
       *task = x;
       return true;

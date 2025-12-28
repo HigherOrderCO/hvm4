@@ -20,8 +20,9 @@ Two insights make this possible:
   return immediately. ERA propagates upward; RED keeps only its RHS; INC is left
   in place for the flattener.
 - `eval_collapse` (clang/eval/collapse.c): breadth-first traversal with a
-  key queue. Lower numeric keys are popped first; SUP increases key, INC
-  decreases key. When a branch has no SUP, it prints `cnf(term)`.
+  work-stealing key queue. Lower numeric keys are popped first; SUP increases
+  key, INC decreases key. Single-threaded runs pop FIFO within each key bucket
+  for deterministic ordering. When a branch has no SUP, it prints `cnf(term)`.
 
 ## Label Behavior (pairwise vs cross product)
 
@@ -53,5 +54,4 @@ Same labels annihilate pairwise:
 
 - `clang/cnf/_.c`: SUP lifting rules.
 - `clang/eval/collapse.c`: branch enumeration + SNF quoting for output.
-- `clang/data/pq.c`: key queue used for BFS order.
-- `clang/data/wspq.c`: work-stealing key queue for parallel collapse.
+- `clang/data/wspq.c`: work-stealing key queue used by collapse (FIFO when T=1).

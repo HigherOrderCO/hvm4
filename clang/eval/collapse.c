@@ -155,65 +155,6 @@ static void *eval_collapse_worker(void *arg) {
   return NULL;
 }
 
-static inline void eval_collapse_seq(Term term, int limit, int show_itrs, int silent) {
-  Pq pq;
-  pq_init(&pq);
-
-  u32 root_loc = heap_alloc(1);
-  heap_set(root_loc, term);
-  pq_push(&pq, (PqItem){.key = 0, .loc = root_loc});
-
-  int count = 0;
-  PqItem it;
-
-  while (pq_pop(&pq, &it) && (limit < 0 || count < limit)) {
-    u32 loc = it.loc;
-    u8  key = it.key;
-
-    Term t = cnf(heap_read(loc));
-    heap_set(loc, t);
-
-    for (;;) {
-      switch (term_tag(t)) {
-        case INC: {
-          u32 inc_loc = term_val(t);
-          loc = inc_loc;
-          t = cnf(heap_read(loc));
-          heap_set(loc, t);
-          if (key > 0) {
-            key -= 1;
-          }
-          continue;
-        }
-        case SUP: {
-          u32 sup_loc = term_val(t);
-          u8 nkey = (u8)(key + 1);
-          pq_push(&pq, (PqItem){.key = nkey, .loc = sup_loc + 0});
-          pq_push(&pq, (PqItem){.key = nkey, .loc = sup_loc + 1});
-          break;
-        }
-        case ERA: {
-          break;
-        }
-        default: {
-          if (!silent) {
-            print_term_quoted(t);
-            if (show_itrs) {
-              printf(" \033[2m#%llu\033[0m", wnf_itrs_total());
-            }
-            printf("\n");
-          }
-          count += 1;
-          break;
-        }
-      }
-      break;
-    }
-  }
-
-  pq_free(&pq);
-}
-
 fn void eval_collapse(Term term, int limit, int show_itrs, int silent) {
   u32 n = thread_get_count();
   if (n == 0) {
@@ -221,10 +162,6 @@ fn void eval_collapse(Term term, int limit, int show_itrs, int silent) {
   }
   if (n > MAX_THREADS) {
     n = MAX_THREADS;
-  }
-  if (n == 1) {
-    eval_collapse_seq(term, limit, show_itrs, silent);
-    return;
   }
   if (limit == 0) {
     return;
@@ -255,21 +192,25 @@ fn void eval_collapse(Term term, int limit, int show_itrs, int silent) {
 
   pthread_t tids[MAX_THREADS];
   EvalCollapseArg args[MAX_THREADS];
-  pthread_attr_t attr;
-  pthread_attr_init(&attr);
-  pthread_attr_setstacksize(&attr, (size_t)EVAL_COLLAPSE_STACK_SIZE);
-  for (u32 i = 1; i < n; ++i) {
-    args[i].ctx = &C;
-    args[i].tid = i;
-    pthread_create(&tids[i], &attr, eval_collapse_worker, &args[i]);
+  if (n > 1) {
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, (size_t)EVAL_COLLAPSE_STACK_SIZE);
+    for (u32 i = 1; i < n; ++i) {
+      args[i].ctx = &C;
+      args[i].tid = i;
+      pthread_create(&tids[i], &attr, eval_collapse_worker, &args[i]);
+    }
+    pthread_attr_destroy(&attr);
   }
-  pthread_attr_destroy(&attr);
 
   EvalCollapseArg arg0 = { .ctx = &C, .tid = 0 };
   eval_collapse_worker(&arg0);
 
-  for (u32 i = 1; i < n; ++i) {
-    pthread_join(tids[i], NULL);
+  if (n > 1) {
+    for (u32 i = 1; i < n; ++i) {
+      pthread_join(tids[i], NULL);
+    }
   }
 
   wspq_free(&C.ws);

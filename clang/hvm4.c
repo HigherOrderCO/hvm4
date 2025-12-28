@@ -279,11 +279,6 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 #include "heap/write.c"
 #include "heap/init_slices.c"
 
-// Data Structures
-// ===============
-
-#include "data/pq.c"
-
 // Term Constructors
 // =================
 
