@@ -22,6 +22,7 @@ typedef struct {
   int  silent;
   int  show_itrs;
   Wspq ws;
+  CnfPool cnf;
 } EvalCollapseCtx;
 
 typedef struct {
@@ -135,13 +136,19 @@ static void *eval_collapse_worker(void *arg) {
       }
     }
 
+    if (cnf_pool_try_run()) {
+      continue;
+    }
+
     if (pend_local != 0) {
       atomic_fetch_add_explicit(&C->pending, pend_local, memory_order_relaxed);
       pend_local = 0;
     }
 
     if (atomic_load_explicit(&C->pending, memory_order_relaxed) == 0) {
-      break;
+      if (atomic_load_explicit(&C->cnf.pending, memory_order_relaxed) == 0) {
+        break;
+      }
     }
 
     cpu_relax();
@@ -186,6 +193,11 @@ fn void eval_collapse(Term term, int limit, int show_itrs, int silent) {
     fprintf(stderr, "eval_collapse: queue allocation failed\n");
     exit(1);
   }
+  if (!cnf_pool_init(&C.cnf, n)) {
+    fprintf(stderr, "eval_collapse: cnf queue allocation failed\n");
+    exit(1);
+  }
+  cnf_pool_set(&C.cnf);
 
   wspq_push(&C.ws, 0u, 0u, (u64)root_loc);
   atomic_fetch_add_explicit(&C.pending, 1, memory_order_relaxed);
@@ -214,4 +226,6 @@ fn void eval_collapse(Term term, int limit, int show_itrs, int silent) {
   }
 
   wspq_free(&C.ws);
+  cnf_pool_clear();
+  cnf_pool_free(&C.cnf);
 }

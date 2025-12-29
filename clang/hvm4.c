@@ -5,6 +5,7 @@
 #include <ctype.h>
 #include <time.h>
 #include <sched.h>
+#include <stdatomic.h>
 #include <pthread.h>
 #include <assert.h>
 

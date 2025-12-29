@@ -18,7 +18,8 @@ Two insights make this possible:
 
 - `cnf` (clang/cnf/_.c): reduce to WNF, then lift the first SUP to the top and
   return immediately. ERA propagates upward; RED keeps only its RHS; INC is left
-  in place for the flattener.
+  in place for the flattener. When collapse threads are idle, cnf can spawn
+  subterm tasks to use the same worker pool.
 - `eval_collapse` (clang/eval/collapse.c): breadth-first traversal with a
   work-stealing key queue. Lower numeric keys are popped first; SUP increases
   key, INC decreases key. Single-threaded runs pop FIFO within each key bucket
