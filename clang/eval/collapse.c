@@ -58,7 +58,13 @@ static inline void eval_collapse_process_loc(EvalCollapseCtx *C, u32 me, u8 key,
       }
       case SUP: {
         u32 sup_loc = term_val(t);
-        u8  nkey = (u8)(key + 1);
+        u8  nkey    = (u8)(key + 1);
+        if (C->ws.n <= 1) {
+          wspq_push(&C->ws, me, nkey, (u64)(sup_loc + 0));
+          wspq_push(&C->ws, me, nkey, (u64)(sup_loc + 1));
+          *pend_local += 2;
+          return;
+        }
         u64 task = ((u64)(sup_loc + 1) << 32) | (u64)(sup_loc + 0);
         wspq_push(&C->ws, me, nkey, task);
         *pend_local += 2;
