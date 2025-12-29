@@ -4,9 +4,10 @@
 // This file provides the command-line interface for the HVM4 runtime,
 // mirroring the structure of main.hs for the Haskell implementation.
 //
-// Usage: ./main <file.hvm4> [-s] [-S] [-C[N]] [-T<N>]
+// Usage: ./main <file.hvm4> [-s] [-S] [-D] [-C[N]] [-T<N>]
 //   -s:  Show statistics (interactions, time, performance)
 //   -S:  Silent output (omit term printing)
+//   -D:  Step-by-step reduction (print intermediate terms)
 //   -C:  Collapse and flatten (enumerate all superposition branches)
 //   -CN: Collapse and flatten, limit to N results
 //   -T:  Use N threads (e.g. -T4)
@@ -22,6 +23,7 @@ typedef struct {
   int   do_collapse;
   int   collapse_limit;  // -1 means no limit
   int   debug;
+  int   step_by_step;
   int   threads;
   char *file;
 } CliOpts;
@@ -33,6 +35,7 @@ fn CliOpts parse_opts(int argc, char **argv) {
     .do_collapse = 0,
     .collapse_limit = -1,
     .debug = 0,
+    .step_by_step = 0,
     .threads = 0,
     .file = NULL
   };
@@ -59,6 +62,8 @@ fn CliOpts parse_opts(int argc, char **argv) {
       opts.threads = atoi(num);
     } else if (strcmp(argv[i], "-d") == 0) {
       opts.debug = 1;
+    } else if (strcmp(argv[i], "-D") == 0) {
+      opts.step_by_step = 1;
     } else if (argv[i][0] != '-') {
       if (opts.file == NULL) {
         opts.file = argv[i];
@@ -88,12 +93,21 @@ int main(int argc, char **argv) {
   CliOpts opts = parse_opts(argc, argv);
 
   if (opts.file == NULL) {
-    fprintf(stderr, "Usage: ./main <file.hvm4> [-s] [-S] [-C[N]] [-T<N>]\n");
+    fprintf(stderr, "Usage: ./main <file.hvm4> [-s] [-S] [-D] [-C[N]] [-T<N>]\n");
+    return 1;
+  }
+
+  if (opts.step_by_step && opts.do_collapse) {
+    fprintf(stderr, "Error: -D is not supported with -C\n");
     return 1;
   }
 
   // Configure threads (default: 1)
   u32 threads = opts.threads > 0 ? (u32)opts.threads : 1;
+  if (opts.step_by_step && threads > 1) {
+    fprintf(stderr, "Warning: -D forces single-threaded mode\n");
+    threads = 1;
+  }
   thread_set_count(threads);
   wnf_set_tid(0);
 
@@ -109,6 +123,8 @@ int main(int argc, char **argv) {
 
   // Set debug mode
   DEBUG = opts.debug;
+  SILENT = opts.silent;
+  STEPS_ENABLE = opts.step_by_step;
 
   // Parse prelude
   PState ps = {
@@ -166,7 +182,7 @@ int main(int argc, char **argv) {
   } else {
     // Standard evaluation to strong normal form
     Term result = eval_normalize(main_ref);
-    if (!opts.silent) {
+    if (!opts.silent && !opts.step_by_step) {
       print_term(result);
       printf("\n");
     }

@@ -6,7 +6,7 @@
 // ----------------------------------------- EQL-MAT-MIS
 // #0
 fn Term wnf_eql_mat(Term a, Term b) {
-  ITRS++;
+  ITRS_INC("EQL-MAT-MIS");
   u32 a_ext = term_ext(a);
   u32 b_ext = term_ext(b);
 

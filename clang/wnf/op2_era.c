@@ -2,6 +2,6 @@
 // ------------- OP2-ERA
 // &{}
 fn Term wnf_op2_era() {
-  ITRS++;
+  ITRS_INC("OP2-ERA");
   return term_new_era();
 }

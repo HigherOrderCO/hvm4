@@ -5,7 +5,7 @@
 // Note: we substitute x with a, then return (f (Var x)) ~> g
 // which effectively becomes (f a) ~> g[x:=a]
 fn Term wnf_app_red_lam(Term f, Term lam, Term arg) {
-  ITRS++;
+  ITRS_INC("APP-RED-LAM");
   u32  lam_loc = term_val(lam);
   Term g       = heap_read(lam_loc);
   Term var_x   = term_new(0, VAR, 0, lam_loc);

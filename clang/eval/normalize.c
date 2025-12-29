@@ -49,7 +49,7 @@ static inline void eval_normalize_par_go(EvalNormalizeCtx *ctx, EvalNormalizeWor
   }
   bool parallel = ctx->n > 1;
   for (;;) {
-    Term term = wnf_at(loc);
+    Term term = __builtin_expect(STEPS_ENABLE, 0) ? wnf_steps_at(loc) : wnf_at(loc);
     u8 tag = term_tag(term);
     if (tag == DP0 || tag == DP1) {
       u32 dup_loc = term_val(term);
@@ -192,6 +192,14 @@ static inline Term eval_normalize_par(Term term) {
   u32 root_loc = (u32)heap_alloc(1);
   heap_set(root_loc, term);
 
+  if (STEPS_ENABLE) {
+    STEPS_ROOT_LOC = root_loc;
+    if (!SILENT) {
+      print_term(heap_read(root_loc));
+      printf("\n");
+    }
+  }
+
   EvalNormalizeCtx ctx;
 
   u32 n = thread_get_count();
@@ -238,6 +246,10 @@ static inline Term eval_normalize_par(Term term) {
   for (u32 i = 0; i < n; i++) {
     wsq_free(&ctx.W[i].dq);
     uset_free(&ctx.W[i].seen);
+  }
+
+  if (STEPS_ENABLE) {
+    STEPS_ROOT_LOC = 0;
   }
 
   return heap_read(root_loc);

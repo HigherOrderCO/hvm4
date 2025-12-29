@@ -5,7 +5,7 @@
 // X₀ ← ^(F₀ A₀)
 // X₁ ← ^(F₁ A₁)
 fn Term wnf_dup_dry(u32 lab, u32 loc, u8 side, Term dry) {
-  ITRS++;
+  ITRS_INC("DUP-DRY");
   u32  d_loc = term_val(dry);
   u64  base  = heap_alloc(6);
   u32  at    = (u32)base;

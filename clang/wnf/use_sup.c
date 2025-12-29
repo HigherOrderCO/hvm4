@@ -3,7 +3,7 @@
 // ! F &L = f
 // &L{(λ{F₀} a), (λ{F₁} b)}
 fn Term wnf_use_sup(Term use, Term sup) {
-  ITRS++;
+  ITRS_INC("USE-SUP");
   u32  use_loc = term_val(use);
   Term f       = heap_read(use_loc);
   u32  lab     = term_ext(sup);

@@ -5,7 +5,7 @@
 // &L{((F₀ ~> x) A₀)
 //   ,((F₁ ~> y) A₁)}
 fn Term wnf_app_red_sup(Term f, Term sup, Term arg) {
-  ITRS++;
+  ITRS_INC("APP-RED-SUP");
   u32  sup_loc = term_val(sup);
   u32  lab     = term_ext(sup);
   Term x       = heap_read(sup_loc + 0);

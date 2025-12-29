@@ -2,6 +2,6 @@
 // ------------ DSU-ERA
 // &{}
 fn Term wnf_dsu_era() {
-  ITRS++;
+  ITRS_INC("DSU-ERA");
   return term_new_era();
 }

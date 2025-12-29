@@ -6,7 +6,7 @@
 // X₀ ← T{A₀,B₀,...}
 // X₁ ← T{A₁,B₁,...}
 fn Term wnf_dup_nod(u32 lab, u32 loc, u8 side, Term term) {
-  ITRS++;
+  ITRS_INC("DUP-NOD");
   u32 ari = term_arity(term);
   if (ari == 0) {
     heap_subst_var(loc, term);

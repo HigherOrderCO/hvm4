@@ -3,7 +3,7 @@
 // ! X &n = v
 // b
 fn Term wnf_ddu_num(Term lab_num, Term val, Term bod) {
-  ITRS++;
+  ITRS_INC("DDU-NUM");
   u32 lab      = term_val(lab_num);
   u64 dup_loc  = heap_alloc(2);
   Term dp0     = term_new_dp0(lab, dup_loc);

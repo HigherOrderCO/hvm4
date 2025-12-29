@@ -2,7 +2,7 @@
 // -------------- OP2-NUM-NUM
 // #(a opr b)
 fn Term wnf_op2_num_num_raw(u32 opr, u32 a, u32 b) {
-  ITRS++;
+  ITRS_INC("OP2-NUM-NUM");
   if (__builtin_expect(opr == OP_SUB, 1)) {
     return term_new_num(a - b);
   }

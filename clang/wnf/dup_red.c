@@ -5,7 +5,7 @@
 // X₀ ← F₀ ~> G₀
 // X₁ ← F₁ ~> G₁
 fn Term wnf_dup_red(u32 lab, u32 loc, u8 side, Term red) {
-  ITRS++;
+  ITRS_INC("DUP-RED");
   u32  r_loc = term_val(red);
   u64  base  = heap_alloc(6);
   u32  at    = (u32)base;

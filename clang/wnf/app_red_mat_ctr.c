@@ -2,7 +2,7 @@
 // --------------------------- APP-RED-MAT-CTR-MAT
 // ((λa.λb.(f #K{a,b}) ~> h) a b)
 fn Term wnf_app_red_mat_ctr_match(Term f, Term mat, Term ctr) {
-  ITRS++;
+  ITRS_INC("APP-RED-MAT-CTR-MAT");
   u32  mat_loc = term_val(mat);
   u32  ctr_loc = term_val(ctr);
   u32  ctr_nam = term_ext(ctr);
@@ -40,7 +40,7 @@ fn Term wnf_app_red_mat_ctr_match(Term f, Term mat, Term ctr) {
 // --------------------------- APP-RED-MAT-CTR-MIS
 // ((f ~> m) #L{a,b})
 fn Term wnf_app_red_mat_ctr_miss(Term f, Term mat, Term ctr) {
-  ITRS++;
+  ITRS_INC("APP-RED-MAT-CTR-MIS");
   u32  mat_loc = term_val(mat);
   Term m       = heap_read(mat_loc + 1);
   return term_new_app(term_new_red(f, m), ctr);

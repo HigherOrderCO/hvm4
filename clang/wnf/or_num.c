@@ -6,11 +6,12 @@
 // -------------------- OR-ONE
 // #1
 fn Term wnf_or_num(Term num, Term b) {
-  ITRS++;
   u32 val = term_val(num);
   if (val == 0) {
+    ITRS_INC("OR-ZER");
     return b;
   } else {
+    ITRS_INC("OR-ONE");
     return term_new_num(1);
   }
 }

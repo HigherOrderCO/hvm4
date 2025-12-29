@@ -6,7 +6,7 @@
 // -------------------- APP-MAT-CTR-MIS
 // (m #L{a,b})
 fn Term wnf_app_mat_ctr(Term mat, Term ctr) {
-  ITRS++;
+  ITRS_INC("APP-MAT-CTR-MIS");
   u32 mat_ext = term_ext(mat);
   u32 ctr_ext = term_ext(ctr);
   u32 mat_loc = term_val(mat);

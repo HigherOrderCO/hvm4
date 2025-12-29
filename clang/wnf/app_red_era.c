@@ -2,6 +2,6 @@
 // -------------- APP-RED-ERA
 // &{}
 fn Term wnf_app_red_era(void) {
-  ITRS++;
+  ITRS_INC("APP-RED-ERA");
   return term_new_era();
 }

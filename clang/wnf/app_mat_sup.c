@@ -5,7 +5,7 @@
 // &L{(λ{#K:H₀; M₀} a)
 //   ,(λ{#K:H₁; M₁} b)}
 fn Term wnf_app_mat_sup(Term mat, Term sup) {
-  ITRS++;
+  ITRS_INC("APP-MAT-SUP");
   u32  lab = term_ext(sup);
   Copy M   = term_clone(lab, mat);
   u32  loc = term_val(sup);

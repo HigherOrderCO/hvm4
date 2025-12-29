@@ -5,6 +5,83 @@
 //   shared dup expr. MAT/USE/RED add specialized frames when their scrutinee is ready.
 // - Apply: once WHNF is reached, pop frames and dispatch the interaction using
 //   the WHNF result. Frames reuse existing heap nodes to avoid allocations.
+__attribute__((cold, noinline)) static Term wnf_rebuild(Term cur, Term *stack, u32 s_pos, u32 base) {
+  while (s_pos > base) {
+    Term frame = stack[--s_pos];
+
+    switch (term_tag(frame)) {
+      case APP: {
+        u32  loc = term_val(frame);
+        Term arg = heap_read(loc + 1);
+        cur = term_new_app_at(loc, cur, arg);
+        break;
+      }
+      case MAT:
+      case SWI:
+      case USE: {
+        cur = term_new_app(frame, cur);
+        break;
+      }
+      case DP0:
+      case DP1: {
+        u32 loc = term_val(frame);
+        heap_set(loc, cur);
+        cur = frame;
+        break;
+      }
+      case OP2: {
+        u32 loc = term_val(frame);
+        heap_set(loc + 0, cur);
+        cur = frame;
+        break;
+      }
+      case F_OP2_NUM: {
+        u32  opr = term_ext(frame);
+        Term x   = term_new_num(term_val(frame));
+        cur = term_new_op2(opr, x, cur);
+        break;
+      }
+      case EQL:
+      case AND:
+      case OR:
+      case DSU:
+      case DDU: {
+        u32 loc = term_val(frame);
+        heap_set(loc + 0, cur);
+        cur = frame;
+        break;
+      }
+      case F_EQL_R: {
+        u32 loc = term_val(frame);
+        heap_set(loc + 1, cur);
+        cur = term_new(0, EQL, 0, loc);
+        break;
+      }
+      case F_APP_RED: {
+        u32  app_loc = term_val(frame);
+        Term red     = heap_read(app_loc + 0);
+        u32  red_loc = term_val(red);
+        heap_set(red_loc + 1, cur);
+        cur = term_new(0, APP, 0, app_loc);
+        break;
+      }
+      case F_RED_MAT:
+      case F_RED_USE: {
+        u32 app_loc = term_val(frame);
+        heap_set(app_loc + 1, cur);
+        cur = term_new(0, APP, 0, app_loc);
+        break;
+      }
+      default: {
+        break;
+      }
+    }
+  }
+
+  WNF_S_POS = s_pos;
+  return cur;
+}
+
 __attribute__((hot)) fn Term wnf(Term term) {
   wnf_stack_init();
   Term *stack = WNF_STACK;
@@ -12,8 +89,13 @@ __attribute__((hot)) fn Term wnf(Term term) {
   u32  base   = s_pos;
   Term next   = term;
   Term whnf;
+  Term rebuild_term;
 
   enter: {
+    if (__builtin_expect(STEPS_ITRS_LIM != 0, 0) && ITRS >= STEPS_ITRS_LIM) {
+      rebuild_term = next;
+      goto rebuild;
+    }
     if (__builtin_expect(DEBUG, 0)) {
       printf("wnf_enter: ");
       print_term(next);
@@ -235,6 +317,10 @@ __attribute__((hot)) fn Term wnf(Term term) {
     }
 
     while (s_pos > base) {
+      if (__builtin_expect(STEPS_ITRS_LIM != 0, 0) && ITRS >= STEPS_ITRS_LIM) {
+        rebuild_term = whnf;
+        goto rebuild;
+      }
       Term frame = stack[--s_pos];
 
       switch (term_tag(frame)) {
@@ -402,7 +488,11 @@ __attribute__((hot)) fn Term wnf(Term term) {
             }
             case NUM: {
               // (mat #n): compare ext(mat) to val(num)
-              ITRS++;
+              if (term_tag(mat) == MAT) {
+                ITRS_INC("APP-MAT-NUM");
+              } else {
+                ITRS_INC("APP-SWI-NUM");
+              }
               u32 loc = term_val(mat);
               u32 ext = term_ext(mat);
               u32 val = term_val(whnf);
@@ -820,7 +910,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
                 goto enter;
               }
               // Otherwise: not equal
-              ITRS++;
+              ITRS_INC("EQL-NOT");
               whnf = term_new_num(0);
               continue;
             }
@@ -962,6 +1052,10 @@ __attribute__((hot)) fn Term wnf(Term term) {
 
   WNF_S_POS = s_pos;
   return whnf;
+
+  rebuild: {
+    return wnf_rebuild(rebuild_term, stack, s_pos, base);
+  }
 }
 
 fn Term wnf_at(u32 loc) {
@@ -993,4 +1087,65 @@ fn Term wnf_at(u32 loc) {
     heap_set(loc, res);
   }
   return res;
+}
+
+#define STEPS_DASH_LEN 40
+
+__attribute__((cold, noinline)) fn void steps_print_line(str itr) {
+  for (u32 i = 0; i < STEPS_DASH_LEN; i++) {
+    fputc('-', stdout);
+  }
+  if (itr != NULL) {
+    fputc(' ', stdout);
+    fputs(itr, stdout);
+  }
+  fputc('\n', stdout);
+}
+
+__attribute__((cold, noinline)) fn Term wnf_steps_at(u32 loc) {
+  Term cur = heap_peek(loc);
+  switch (term_tag(cur)) {
+    case RED:
+    case NAM:
+    case BJV:
+    case BJ0:
+    case BJ1:
+    case DRY:
+    case ERA:
+    case SUP:
+    case LAM:
+    case NUM:
+    case MAT:
+    case SWI:
+    case USE:
+    case INC:
+    case C00 ... C16: {
+      return cur;
+    }
+    default: {
+      break;
+    }
+  }
+
+  for (;;) {
+    u64 itrs = ITRS;
+    STEPS_LAST_ITR = NULL;
+    STEPS_ITRS_LIM = itrs + 1;
+    Term res = wnf(cur);
+    STEPS_ITRS_LIM = 0;
+    if (res != cur) {
+      heap_set(loc, res);
+      cur = res;
+    }
+    if (ITRS == itrs) {
+      break;
+    }
+    if (!SILENT && STEPS_ROOT_LOC != 0) {
+      steps_print_line(STEPS_LAST_ITR);
+      print_term(heap_read(STEPS_ROOT_LOC));
+      printf("\n");
+    }
+  }
+
+  return cur;
 }

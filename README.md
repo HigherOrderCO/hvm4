@@ -17,6 +17,7 @@ cd clang && clang -O2 -o main main.c
 
 Flags:
 - `-s` shows performance stats
+- `-D` prints each intermediate reduction step with interaction labels
 - `-C10` collapses and flattens superpositions (limit to 10 lines)
 
 ## Examples

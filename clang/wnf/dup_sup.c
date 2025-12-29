@@ -9,7 +9,7 @@
 //   X₀ ← &R{A₀,B₀}
 //   X₁ ← &R{A₁,B₁}
 fn Term wnf_dup_sup(u32 lab, u32 loc, u8 side, Term sup) {
-  ITRS++;
+  ITRS_INC("DUP-SUP");
   u32 sup_loc = term_val(sup);
   u32 sup_lab = term_ext(sup);
   if (lab == sup_lab) {

@@ -8,7 +8,7 @@
 // ------------------------------------- EQL-CTR-MIS
 // #0
 fn Term wnf_eql_ctr(Term a, Term b) {
-  ITRS++;
+  ITRS_INC("EQL-CTR-MIS");
   u32 a_tag = term_tag(a);
   u32 b_tag = term_tag(b);
   u32 a_ext = term_ext(a);

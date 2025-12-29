@@ -24,6 +24,7 @@ typedef uint8_t  u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
+typedef const char *str;
 
 typedef u64 Term;
 
@@ -215,11 +216,23 @@ static _Thread_local u64 *WNF_ITRS_PTR = NULL;
 #define WNF_STACK (WNF_BANK->stack)
 #define WNF_S_POS (WNF_BANK->s_pos)
 #define ITRS (*WNF_ITRS_PTR)
+#define ITRS_INC(name) \
+  do { \
+    if (__builtin_expect(STEPS_ITRS_LIM != 0, 0)) { \
+      STEPS_LAST_ITR = (name); \
+    } \
+    ITRS++; \
+  } while (0)
 static u32 FRESH = 1;
 
 #include "wnf/tid.c"
 
-static int   DEBUG = 0;
+static int DEBUG          = 0;
+static int SILENT         = 0;
+static int STEPS_ENABLE   = 0;
+static u64 STEPS_ITRS_LIM = 0;
+static u32 STEPS_ROOT_LOC = 0;
+static str STEPS_LAST_ITR = NULL;
 
 // Nick Alphabet
 // =============

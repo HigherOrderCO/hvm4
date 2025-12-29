@@ -6,11 +6,12 @@
 // -------------------- AND-ONE
 // b
 fn Term wnf_and_num(Term num, Term b) {
-  ITRS++;
   u32 val = term_val(num);
   if (val == 0) {
+    ITRS_INC("AND-ZER");
     return term_new_num(0);
   } else {
+    ITRS_INC("AND-ONE");
     return b;
   }
 }

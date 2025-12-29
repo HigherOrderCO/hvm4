@@ -3,7 +3,7 @@
 // ! X &L = x
 // &L{(X₀ op a), (X₁ op b)}
 fn Term wnf_op2_num_sup(u32 opr, Term x, Term sup) {
-  ITRS++;
+  ITRS_INC("OP2-NUM-SUP");
   u32  lab     = term_ext(sup);
   u32  sup_loc = term_val(sup);
   Copy X       = term_clone(lab, x);
