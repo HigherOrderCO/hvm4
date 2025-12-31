@@ -13,6 +13,9 @@ fn Term parse_term_str(PState *s, u32 depth) {
     } else {
       c = parse_utf8(s);
     }
+    if (n >= 4096) {
+      parse_error(s, "string too long (max 4096 codepoints)", '"');
+    }
     cs[n++] = c;
   }
   parse_advance(s);

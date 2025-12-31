@@ -26,7 +26,11 @@ fn void parse_include(PState *s) {
   if (PARSE_SEEN_FILES_LEN >= 1024) {
     sys_error("MAX_INCLUDES");
   }
-  PARSE_SEEN_FILES[PARSE_SEEN_FILES_LEN++] = strdup(path);
+  char *path_copy = strdup(path);
+  if (!path_copy) {
+    sys_error("out of memory in parse_include");
+  }
+  PARSE_SEEN_FILES[PARSE_SEEN_FILES_LEN++] = path_copy;
 
   // Read and parse
   char *src = sys_file_read(path);
