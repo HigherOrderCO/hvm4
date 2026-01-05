@@ -1,0 +1,6 @@
+// Payor repro: explicit DUP for G
+@main =
+  ! G &L = λy.y;
+  ! F &L = λx. x(G₀, G₁);
+  F₀(λa.λb.a)(F₁(λc.λd.d))
+//λa.a

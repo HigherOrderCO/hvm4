@@ -8,7 +8,9 @@ fn Term wnf_mov_nod(u32 loc, Term term) {
   ITRS++;
   u32 ari = term_arity(term);
   if (ari == 0) {
-    heap_subst_var(loc, term);
+    if (!SAFE_MOV) {
+      heap_subst_var(loc, term);
+    }
     return term;
   }
   u32  t_loc = term_val(term);
@@ -22,6 +24,8 @@ fn Term wnf_mov_nod(u32 loc, Term term) {
     heap_write(nod_loc + i, term_new_got(got_loc + i));
   }
   Term res = term_new(0, t_tag, t_ext, nod_loc);
-  heap_subst_var(loc, res);
+  if (!SAFE_MOV) {
+    heap_subst_var(loc, res);
+  }
   return res;
 }

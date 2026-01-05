@@ -13,6 +13,8 @@ fn Term wnf_mov_red(u32 loc, Term red) {
   Term f     = term_new_got(at + 0);
   Term g     = term_new_got(at + 1);
   Term res   = term_new_red_at(at + 2, f, g);
-  heap_subst_var(loc, res);
+  if (!SAFE_MOV) {
+    heap_subst_var(loc, res);
+  }
   return res;
 }

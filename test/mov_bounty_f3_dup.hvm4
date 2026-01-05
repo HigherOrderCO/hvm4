@@ -1,0 +1,38 @@
+// Minimal repro: DUP insert used 3x via cloned lambda
+@tail = λ{[]:[];<>:λa.λb.b}
+
+// List ::= Cons List | Succ List | Nil
+@C = λt. λc. λs. λn. c(t)
+@S = λp. λc. λs. λn. s(p)
+@N =     λc. λs. λn. n
+
+// Bits ::= O Bits | I Bits | E
+@O = λp. λo. λi. λe. o(p)
+@I = λp. λo. λi. λe. i(p)
+@E =     λo. λi. λe. e
+
+@view = λxs.
+  ! O = λp. #O{@view(p)}
+  ! I = λp. #I{@view(p)}
+  ! E = #E
+  xs(O, I, E)
+
+// DUP version
+@insert_A = λn.
+  ! O = &{}
+  ! I = (λ&p. λxs. λ&o. λi. λe.
+    ! O = λxs. o(@insert_A(p, xs))
+    ! I = λxs. i(@insert_A(p, xs))
+    ! E = o(@insert_A(p, @N))
+    xs(O, I, E))
+  ! E = λxs. λo. λ&i. λe.
+    ! O = λxs. i(xs)
+    ! I = λxs. i(xs)
+    ! E = i(@N)
+    xs(O, I, E)
+  n(O, I, E)
+
+@main =
+  ! ins = @insert_A(@I(@E))
+  @view((λ&f. f(f(f(@O(@E)))))(ins))
+//#O{#I{#E{}}}

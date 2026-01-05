@@ -92,6 +92,7 @@ typedef struct {
 #define MOV 47  // Mov(v, b): move binding
 #define GOT 48  // Got(n): linked mov variable
 
+
 // LAM Ext Flags
 // =============
 #define LAM_ERA_MASK 0x800000  // binder unused in lambda body
@@ -223,6 +224,7 @@ static u32 FRESH = 1;
 #include "wnf/tid.c"
 
 static int   DEBUG = 0;
+static int   SAFE_MOV  = 1;
 
 // Nick Alphabet
 // =============
@@ -320,6 +322,17 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 #include "term/new/inc.c"
 #include "term/new/num.c"
 #include "term/clone.c"
+
+fn void safe_mov_init_from_env(void) {
+  const char *val = getenv("HVM4_SAFE_MOV");
+  if (val != NULL && val[0] != '\0') {
+    if (val[0] == '0' && val[1] == '\0') {
+      SAFE_MOV = 0;
+    } else {
+      SAFE_MOV = 1;
+    }
+  }
+}
 
 // Heap Substitution
 // =================

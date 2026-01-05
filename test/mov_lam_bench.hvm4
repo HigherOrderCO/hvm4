@@ -1,0 +1,8 @@
+@apply4 = λ&g. λx. g(g(g(g(x))))
+@apply16 = λ&g. λx. @apply4(g, @apply4(g, @apply4(g, @apply4(g, x))))
+@apply64 = λ&g. λx. @apply16(g, @apply16(g, @apply16(g, @apply16(g, x))))
+
+@main =
+  % f = λx.x;
+  @apply64(λy. f(f(y)), 0n)
+//0n

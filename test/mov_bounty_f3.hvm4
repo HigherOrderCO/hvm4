@@ -1,0 +1,40 @@
+// Minimal repro: MOV insert used 3x via cloned lambda
+@tail = λ{[]:[];<>:λa.λb.b}
+
+// List ::= Cons List | Succ List | Nil
+@C = λt. λc. λs. λn. c(t)
+@S = λp. λc. λs. λn. s(p)
+@N =     λc. λs. λn. n
+
+// Bits ::= O Bits | I Bits | E
+@O = λp. λo. λi. λe. o(p)
+@I = λp. λo. λi. λe. i(p)
+@E =     λo. λi. λe. e
+
+@view = λxs.
+  ! O = λp. #O{@view(p)}
+  ! I = λp. #I{@view(p)}
+  ! E = #E
+  xs(O, I, E)
+
+// MOV version
+@insert_B = λn.
+  ! O = &{}
+  ! I = (λ&p. λxs. λ&o. λi. λe.
+    % f = o
+    ! O = λxs. f(@insert_B(p, xs))
+    ! I = λxs. i(@insert_B(p, xs))
+    ! E = f(@insert_B(p, @N))
+    xs(O, I, E))
+  ! E = λxs. λo. λ&i. λe.
+    % k = i
+    ! O = λxs. k(xs)
+    ! I = λxs. k(xs)
+    ! E = k(@N)
+    xs(O, I, E)
+  n(O, I, E)
+
+@main =
+  ! ins = @insert_B(@I(@E))
+  @view((λ&f. f(f(f(@O(@E)))))(ins))
+//#O{#I{#E{}}}

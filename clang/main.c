@@ -109,6 +109,7 @@ int main(int argc, char **argv) {
 
   // Set debug mode
   DEBUG = opts.debug;
+  safe_mov_init_from_env();
 
   // Parse prelude
   PState ps = {

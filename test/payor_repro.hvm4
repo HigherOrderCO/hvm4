@@ -1,0 +1,6 @@
+// Payor repro (minimal). Uses MOV + DUP with label L.
+@main =
+  % G = λy.y;
+  ! F &L = λx. x(G, G);
+  F₀(λa.λb.a)(F₁(λc.λd.d))
+//λa.a

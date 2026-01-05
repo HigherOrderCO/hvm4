@@ -1,0 +1,89 @@
+// PROBLEM: in the code below:
+// 1. both versions of @insert should output the same result with -C1
+// 2. the second version should take <50k interactions to halt
+// yet, on HVM4's current MOV node implementation, the outputs mismatch. why?
+// your goal is to find out, and fix HVM4 so that both points above hold.
+// $10k bounty: https://x.com/VictorTaelin/status/2006818916211834900
+
+@tail = λ{[]:[];<>:λa.λb.b}
+
+// List ::= Cons List | Succ List | Nil
+@C = λt. λc. λs. λn. c(t)
+@S = λp. λc. λs. λn. s(p)
+@N =     λc. λs. λn. n
+
+// Bits ::= O Bits | I Bits | E
+@O = λp. λo. λi. λe. o(p)
+@I = λp. λo. λi. λe. i(p)
+@E =     λo. λi. λe. e
+
+// ℕ → U32 → Bin -- converts a U32 to a Bin with a given size
+@bin = λ{
+  0n: λn. λo.λi.λe.e;
+  1n+: λ&l. λ&n. (λ{
+    0: λo.λi.λe.o(@bin(l, n/2))
+    1: λo.λi.λe.i(@bin(l, n/2))
+  })(n % 2)
+}
+
+// Bin → (P → P) → P → P -- applies a function N times to an argument
+@rep = λxs.
+  ! O = λp.λ&f.λx.@rep(p,λk.f(f(k)),x)
+  ! I = λp.λ&f.λx.@rep(p,λk.f(f(k)),f(x))
+  ! E = λf.λx.x
+  xs(O, I, E)
+
+// [1,2,3] ::= Cons (Succ (Cons (Succ (Succ (Cons (Succ (Succ (Succ Nil))))))))
+@to_nats_go = λxs. λn.
+  ! C = λt. λn. n <> @to_nats_go(t, 0n)
+  ! S = λp. λn. @to_nats_go(p, 1n+n)
+  ! N = λn. [n]
+  xs(C, S, N, n)
+
+@to_nats = λxs.
+  @tail(@to_nats_go(xs,0n))
+
+@view = λxs.
+  ! O = λp. #O{@view(p)}
+  ! I = λp. #I{@view(p)}
+  ! E = #E
+  xs(O, I, E)
+
+// control: using DUP nodes (this works)
+@insert_A = λn.
+  ! O = &{}
+  ! I = (λ&p. λxs. λ&o. λi. λe.
+    ! O = λxs. o(@insert_A(p, xs))
+    ! I = λxs. i(@insert_A(p, xs))
+    ! E = o(@insert(p, @N))
+    xs(O, I, E))
+  ! E = λxs. λo. λ&i. λe.
+    ! O = λxs. i(xs)
+    ! I = λxs. i(xs)
+    ! E = i(@N)
+    xs(O, I, E)
+  n(O, I, E)
+
+// problem: using MOV nodes (this fails)
+@insert_B = λn.
+  ! O = &{}
+  ! I = (λ&p. λxs. λ&o. λi. λe.
+    % f = o
+    ! O = λxs. f(@insert_B(p, xs))
+    ! I = λxs. i(@insert_B(p, xs))
+    ! E = f(@insert_B(p, @N))
+    xs(O, I, E))
+  ! E = λxs. λo. λ&i. λe.
+    % k = i
+    ! O = λxs. k(xs)
+    ! I = λxs. k(xs)
+    ! E = k(@N)
+    xs(O, I, E)
+  n(O, I, E)
+
+// this should produce the same output with either @insert fns above when
+// running it with `HVM4 -C1`, but, currently, the outputs mismatch...
+@main =
+  ! ins = @insert_B(@I(@E))
+  @view(@rep(@bin(2n,2), ins, @O(@E)))
+//#O{#I{#E{}}}

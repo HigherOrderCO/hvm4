@@ -708,6 +708,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
               next = wnf_mov_sup(loc, whnf);
               goto enter;
             }
+            case VAR:
             case ERA:
             case ANY:
             case NUM: {
