@@ -1,0 +1,54 @@
+@O = λp. λo. λi. λe. o(p)
+@I = λp. λo. λi. λe. i(p)
+@E =     λo. λi. λe. e
+@N =     λc. λs. λn. n
+
+@view = λxs.
+  ! O = λp. #O{@view(p)}
+  ! I = λp. #I{@view(p)}
+  ! E = #E
+  xs(O, I, E)
+
+@rep2 = λ&f. λx. f(f(x))
+@rep3 = λ&f. λx. f(f(f(x)))
+
+@insert_mov = λn.
+  ! O = &{}
+  ! I = (λ&p. λxs. λ&o. λi. λe.
+    % f = o
+    ! O = λxs. f(@insert_mov(p, xs))
+    ! I = λxs. i(@insert_mov(p, xs))
+    ! E = f(@insert_mov(p, @N))
+    xs(O, I, E))
+  ! E = λxs. λo. λ&i. λe.
+    % k = i
+    ! O = λxs. k(xs)
+    ! I = λxs. k(xs)
+    ! E = k(@N)
+    xs(O, I, E)
+  n(O, I, E)
+
+@insert_dup = λn.
+  ! O = &{}
+  ! I = (λ&p. λxs. λ&o. λi. λe.
+    ! O = λxs. o(@insert_dup(p, xs))
+    ! I = λxs. i(@insert_dup(p, xs))
+    ! E = o(@insert_dup(p, @N))
+    xs(O, I, E))
+  ! E = λxs. λo. λ&i. λe.
+    ! O = λxs. i(xs)
+    ! I = λxs. i(xs)
+    ! E = i(@N)
+    xs(O, I, E)
+  n(O, I, E)
+
+@ins_mov = @insert_mov(@I(@I(@E)))
+@ins_dup = @insert_dup(@I(@I(@E)))
+
+@main = #T{
+  @view(@rep2(@ins_mov, @O(@E))),  // OK:   #O{#O{#I{#E{}}}}
+  @view(@rep3(@ins_mov, @O(@E))),  // FAIL in unsafe mode
+  @view(@rep2(@ins_dup, @O(@E))),  // OK:   #O{#O{#I{#E{}}}}
+  @view(@rep3(@ins_dup, @O(@E)))   // OK:   #O{#O{#I{#E{}}}}
+}
+//#T{#O{#O{#I{#E{}}}},#O{#O{#I{#E{}}}},#O{#O{#I{#E{}}}},#O{#O{#I{#E{}}}}}
