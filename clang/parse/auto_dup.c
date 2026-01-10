@@ -62,7 +62,7 @@ fn void auto_dup_go(u64 loc, u32 lvl, u32 base, u32 *use, u32 n, u32 lab, u8 tgt
   }
 
   // Shift outer refs
-  if ((tg == BJV || tg == BJ0 || tg == BJ1) && vl > base) {
+  if ((tg == BJV || tg == BJ0 || tg == BJ1 || tg == BJM) && vl > base) {
     HEAP[loc] = term_new(0, tg, term_ext(t), vl + n);
     return;
   }

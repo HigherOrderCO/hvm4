@@ -11,6 +11,9 @@ fn u32 table_find(const char *name, u32 len) {
   // Not found - create new entry
   u32  id   = TABLE_LEN++;
   char *copy = malloc(len + 1);
+  if (!copy) {
+    sys_error("out of memory in table_find");
+  }
   memcpy(copy, name, len);
   copy[len] = '\0';
   TABLE[id] = copy;
