@@ -1,10 +1,25 @@
-fn void parse_bind_lookup(u32 name, int *lvl, u32 *lab, u32 *cloned) {
+// Lookup binding by name. If side == -1, skip dup bindings (fall through to outer non-dup).
+// Returns lvl = -1 if not found, skipped = 1 if found bind with same name but not applicable.
+fn void parse_bind_lookup(u32 name, int side, int *lvl, u32 *lab, u32 *cloned, int *skipped) {
+  *skipped = 0;
   for (int i = PARSE_BINDS_LEN - 1; i >= 0; i--) {
-    if (PARSE_BINDS[i].name == name) {
-      *lvl = (int)PARSE_BINDS[i].lvl;
-      *lab = PARSE_BINDS[i].lab;
-      *cloned = PARSE_BINDS[i].cloned;
-      PARSE_BINDS[i].uses++;
+    PBind *bind = &PARSE_BINDS[i];
+    if (bind->name == name) {
+      // Skip dup bindings if no subscript and not in fork mode
+      if (side == -1 && bind->lab != 0) {
+        *skipped = 1;
+        continue;
+      }
+      // Skip non-dup bindings if subscript or fork mode
+      if (side != -1 && bind->lab == 0) {
+        *skipped = 1;
+        continue;
+      }
+      // Found the appropriate binding
+      *lvl = (int)bind->lvl;
+      *lab = bind->lab;
+      *cloned = bind->cloned;
+      bind->uses++;
       return;
     }
   }
@@ -13,38 +28,15 @@ fn void parse_bind_lookup(u32 name, int *lvl, u32 *lab, u32 *cloned) {
   *cloned = 0;
 }
 
-// Lookup skipping dup bindings, for bare variable access that should fall through to outer scope
-// Returns 1 if found, 0 if not found
-fn int parse_bind_lookup_skip_dup(u32 name, int *lvl, u32 *lab, u32 *cloned) {
-  for (int i = PARSE_BINDS_LEN - 1; i >= 0; i--) {
-    if (PARSE_BINDS[i].name == name) {
-      // Skip dup bindings (lab != 0)
-      if (PARSE_BINDS[i].lab != 0) {
-        continue;
-      }
-      // Found a non-dup binding - check if it has capacity
-      if (!PARSE_BINDS[i].cloned && PARSE_BINDS[i].uses >= 1) {
-        // No capacity left
-        return 0;
-      }
-      *lvl = (int)PARSE_BINDS[i].lvl;
-      *lab = PARSE_BINDS[i].lab;
-      *cloned = PARSE_BINDS[i].cloned;
-      PARSE_BINDS[i].uses++;
-      return 1;
-    }
-  }
-  return 0;
-}
-
 // Increment per-side use count and return previous count
 fn u32 parse_bind_inc_side(u32 name, int side) {
   for (int i = PARSE_BINDS_LEN - 1; i >= 0; i--) {
-    if (PARSE_BINDS[i].name == name) {
+    PBind *bind = &PARSE_BINDS[i];
+    if (bind->name == name) {
       if (side == 0) {
-        return PARSE_BINDS[i].uses0++;
+        return bind->uses0++;
       } else {
-        return PARSE_BINDS[i].uses1++;
+        return bind->uses1++;
       }
     }
   }

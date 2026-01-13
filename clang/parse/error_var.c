@@ -1,13 +1,13 @@
-fn void parse_error_var(const char *fmt, u32 nam) {
+fn void parse_error_var(PState *s, const char *fmt, u32 nam) {
   char buf[16];
   nick_to_str(nam, buf, sizeof(buf));
-  fprintf(stderr, "\033[1;31mPARSE_ERROR\033[0m\n");
+  fprintf(stderr, "\033[1;31mPARSE_ERROR\033[0m (%s:%d:%d)\n", s->file, s->line, s->col);
   fprintf(stderr, fmt, buf);
   exit(1);
 }
 
-fn void parse_error_affine(u32 nam, u32 uses, int is_dup, const char *hint) {
-  fprintf(stderr, "\033[1;31mPARSE_ERROR\033[0m\n");
+fn void parse_error_affine(PState *s, u32 nam, u32 uses, int is_dup, const char *hint) {
+  fprintf(stderr, "\033[1;31mPARSE_ERROR\033[0m (%s:%d:%d)\n", s->file, s->line, s->col);
   fprintf(stderr, "- %svariable '", is_dup ? "dup " : "");
   print_name(stderr, nam);
   if (is_dup) {
@@ -19,8 +19,8 @@ fn void parse_error_affine(u32 nam, u32 uses, int is_dup, const char *hint) {
   exit(1);
 }
 
-fn void parse_error_affine_side(u32 nam, int side, u32 uses) {
-  fprintf(stderr, "\033[1;31mPARSE_ERROR\033[0m\n");
+fn void parse_error_affine_side(PState *s, u32 nam, int side, u32 uses) {
+  fprintf(stderr, "\033[1;31mPARSE_ERROR\033[0m (%s:%d:%d)\n", s->file, s->line, s->col);
   fprintf(stderr, "- dup variable '");
   print_name(stderr, nam);
   fprintf(stderr, "%s' used %d times (not cloned)\n", side == 0 ? "₀" : "₁", uses);
