@@ -1,31 +1,13 @@
-fn void parse_error_var(PState *s, const char *fmt, u32 nam) {
-  char buf[16];
-  nick_to_str(nam, buf, sizeof(buf));
+fn void parse_error_var(PState *s, u32 nam, int is_dup, int skipped) {
+  char nam_buf[16];
+  nick_to_str(nam, nam_buf, sizeof(nam_buf));
   fprintf(stderr, "\033[1;31mPARSE_ERROR\033[0m (%s:%d:%d)\n", s->file, s->line, s->col);
-  fprintf(stderr, fmt, buf);
-  exit(1);
-}
-
-fn void parse_error_affine(PState *s, u32 nam, u32 uses, int is_dup, const char *hint) {
-  fprintf(stderr, "\033[1;31mPARSE_ERROR\033[0m (%s:%d:%d)\n", s->file, s->line, s->col);
-  fprintf(stderr, "- %svariable '", is_dup ? "dup " : "");
-  print_name(stderr, nam);
-  if (is_dup) {
-    fprintf(stderr, "' used %d times (max 2 with ₀ and ₁)\n", uses);
+  if (is_dup && skipped) {
+    fprintf(stderr, "- dup variable '%s' requires subscript ₀ or ₁\n", nam_buf);
+  } else if (!is_dup && skipped) {
+    fprintf(stderr, "- non-dup variable '%s' must be used without subscript (₀ or ₁)\n", nam_buf);
   } else {
-    fprintf(stderr, "' used %d times (not cloned)\n", uses);
-    fprintf(stderr, "- hint: use %s to allow multiple uses\n", hint);
+    fprintf(stderr, "- undefined variable '%s'\n", nam_buf);
   }
-  exit(1);
-}
-
-fn void parse_error_affine_side(PState *s, u32 nam, int side, u32 uses) {
-  fprintf(stderr, "\033[1;31mPARSE_ERROR\033[0m (%s:%d:%d)\n", s->file, s->line, s->col);
-  fprintf(stderr, "- dup variable '");
-  print_name(stderr, nam);
-  fprintf(stderr, "%s' used %d times (not cloned)\n", side == 0 ? "₀" : "₁", uses);
-  fprintf(stderr, "- hint: use &");
-  print_name(stderr, nam);
-  fprintf(stderr, " to allow multiple uses\n");
   exit(1);
 }

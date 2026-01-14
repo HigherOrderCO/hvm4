@@ -105,10 +105,12 @@ fn Term parse_term_lam(PState *s, u32 depth) {
       return term;
     }
   }
+
   // Parse argument: [&]name[&[label|(label)]]
   u32 cloned = parse_match(s, "&");
   u32 nam    = parse_name(s);
   parse_skip(s);
+
   // Inline dup: λx&L or λx&(L) or λx&
   if (parse_peek(s) == '&') {
     parse_advance(s);
@@ -130,7 +132,7 @@ fn Term parse_term_lam(PState *s, u32 depth) {
     }
     parse_skip(s);
     u32 d = dyn ? 3 : 2;
-    u32 bid = parse_bind_push(nam, depth + 1, dyn ? 0xFFFFFF : lab, cloned);
+    PBind* bind = parse_bind_push(nam, depth + 1, dyn ? 0xFFFFFF : lab, 0, cloned);
     Term body;
     if (parse_match(s, ",")) {
       body = parse_term_lam(s, depth + d);
@@ -138,7 +140,7 @@ fn Term parse_term_lam(PState *s, u32 depth) {
       parse_consume(s, ".");
       body = parse_term(s, depth + d);
     }
-    u32 uses = parse_bind_get_uses(bid);
+    u32 uses = bind->uses;
     parse_bind_pop();
     if (dyn) {
       if (cloned) {
@@ -158,9 +160,6 @@ fn Term parse_term_lam(PState *s, u32 depth) {
       }
       return term_new(0, LAM, lam_ext, lam_loc);
     } else {
-      if (!cloned && uses > 2) {
-        parse_error_affine(s, nam, uses, 1, NULL);
-      }
       if (cloned) {
         body = parse_auto_dup(body, depth + 2, depth + 2, BJ1, lab);
         body = parse_auto_dup(body, depth + 2, depth + 2, BJ0, lab);
@@ -177,8 +176,9 @@ fn Term parse_term_lam(PState *s, u32 depth) {
       return term_new(0, LAM, lam_ext, lam_loc);
     }
   }
+
   // Simple single arg (with comma recursion for cloned/complex args)
-  u32 bid = parse_bind_push(nam, depth, 0, cloned);
+  PBind* bind = parse_bind_push(nam, depth, 0, 0, cloned);
   Term body;
   if (parse_match(s, ",")) {
     body = parse_term_lam(s, depth + 1);
@@ -186,13 +186,10 @@ fn Term parse_term_lam(PState *s, u32 depth) {
     parse_consume(s, ".");
     body = parse_term(s, depth + 1);
   }
-  u32 uses = parse_bind_get_uses(bid);
-  if (!cloned && uses > 1) {
-    parse_error_affine(s, nam, uses, 0, "λ&");
-  }
   if (cloned) {
     body = parse_auto_dup(body, depth + 1, depth + 1, BJV, 0);
   }
+  u32 uses = bind->uses;
   parse_bind_pop();
   u32 lam_ext = depth + 1;
   if (uses == 0) {

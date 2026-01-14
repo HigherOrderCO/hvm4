@@ -256,6 +256,7 @@ typedef struct {
   u32 name;
   u32 lvl;
   u32 lab;
+  u32 forked;  // 1 if this is a fork variable
   u32 cloned;  // 1 if this is a cloned variable (λ&x or ! &x = v)
   u32 uses;    // Number of times this variable is used
   u32 uses0;   // Number of times X₀ is used (for cloned dup bindings)
@@ -366,6 +367,7 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 
 #include "parse/error.c"
 #include "parse/error_var.c"
+#include "parse/error_affine.c"
 #include "parse/at_end.c"
 #include "parse/peek_at.c"
 #include "parse/peek.c"
