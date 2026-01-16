@@ -487,21 +487,7 @@ __attribute__((hot)) fn Term wnf(Term term) {
               goto enter;
             }
             case NUM: {
-              // (mat #n): compare ext(mat) to val(num)
-              if (term_tag(mat) == MAT) {
-                ITRS_INC("APP-MAT-NUM");
-              } else {
-                ITRS_INC("APP-SWI-NUM");
-              }
-              u32 loc = term_val(mat);
-              u32 ext = term_ext(mat);
-              u32 val = term_val(whnf);
-              if (ext == val) {
-                next = heap_read(loc + 0);
-              } else {
-                Term g = heap_read(loc + 1);
-                next = term_new_app_at(loc, g, whnf);
-              }
+              next = wnf_app_mat_num(mat, whnf);
               goto enter;
             }
             case RED: {

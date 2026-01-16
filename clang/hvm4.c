@@ -423,6 +423,7 @@ static int    PARSE_FORK_SIDE = -1;      // -1 = off, 0 = left branch (DP0), 1 =
 #include "wnf/app_inc.c"
 #include "wnf/app_mat_sup.c"
 #include "wnf/app_mat_ctr.c"
+#include "wnf/app_mat_num.c"
 #include "wnf/mat_inc.c"
 #include "wnf/dup_nam.c"
 #include "wnf/dup_dry.c"
