@@ -1,0 +1,101 @@
+@if = λ{
+  0:    λt.λf.f
+  _: λc.λt.λf.t
+}
+
+@u32 = λ{
+  #O: λp. 2*@u32(p) + 0
+  #I: λp. 2*@u32(p) + 1
+  #E: 0
+}
+
+@bin = λ{
+  0: λ  &n. #E
+  _: λs,&n. @bin_go(n%2, s-1, n)
+}
+
+@bin_go = λ{
+  0:    λp,n. #O{@bin(p, n/2)}
+  _: λe.λp,n. #I{@bin(p, n/2)}
+}
+
+@eq = λ{
+  #E: λ{
+    #O: λbp.0
+    #I: λbp.0
+    #E: 1
+  }
+  #O: λap,{
+    #O: λbp.@eq(ap bp)
+    #I: λbp.0
+    #E: 0
+  }
+  #I: λap.λ{
+    #O: λbp.0;
+    #I: λbp.@eq(ap,bp);
+    #E: 0;
+  }
+}
+
+@inc = λ{
+  #O: λp. #I{p}
+  #I: λp. #O{@inc(p)}
+  #E: #E
+}
+
+@dec = λ{
+  #O: λp. #O{@dec(p)}
+  #I: λp. #I{p}
+  #E: #E
+}
+
+@add = λ{
+  #O: λ&ap. λ{
+    #O: λbp. #O{@add(ap, bp)}
+    #I: λbp. #I{@add(ap, bp)}
+    #E: #E
+  }
+  #I: λ&ap. λ{
+    #O: λbp. #I{@add(ap, bp)}
+    #I: λbp. #O{@inc(@add(ap, bp))}
+    #E: #I{ap}
+  }
+  #E: λb. #E
+}
+
+@mul = λ&a. λ{
+  #O: λbp. #O{@mul(a, bp)}
+  #I: λbp. @add(a, #O{@mul(a, bp)})
+  #E: #E
+}
+
+@cat = λ{
+  #O: λap, b. #O{@cat(ap, b)}
+  #I: λap, b. #I{@cat(ap, b)}
+  #E: λb.b
+}
+
+@all1 = λ{
+  0: #E;
+  _: λs. !p&L = s-1; &L{
+    #O{@all1(p₀)}
+    #I{@all1(p₁)}
+  }
+}
+
+@all2 = λ{
+  0: #E;
+  _: λs. !p&M = s-1; &M{
+    #O{@all2(p₀)}
+    #I{@all2(p₁)}
+  }
+}
+
+@K_B = 9
+@H_B = 10
+@S_B = 20
+@X_B = @cat(@all1(@H_B) @bin(@H_B, 0))
+@Y_B = @cat(@all2(@H_B) @bin(@H_B, 0))
+@P_B = #I{#I{#I{#I{#O{#I{#I{#O{#I{#I{#O{#O{#I{#O{#I{#O{#O{#O{#I{#I{#E}}}}}}}}}}}}}}}}}}}}
+
+@main = @if(@eq(@mul(@X_B @Y_B), @P_B), [@u32(@X_B), @u32(@Y_B)], &{})
